@@ -236,3 +236,63 @@ class TestCanonicalizationOverThePipeline:
             ("payment_address",), 75,
         )
         assert not V.verdicts_agree(mine, theirs, 15)
+
+
+class TestLeaderPayloadUnwrapping:
+    """The bug that cost a deployment and that no local check could see.
+
+    `run_nondet_unsafe` hands the validator function a `gl.vm.Result`, not the
+    value `compute` returned. An earlier revision compared against the wrapper,
+    so `isinstance(payload, dict)` was false for every honest leader and every
+    validator voted disagree. Locally nothing failed: the contract ran, the
+    leader produced the right answer, 347 tests passed, and the transaction came
+    back UNDETERMINED with three validators reporting SUCCESS and an identical
+    contract state hash.
+
+    These tests drive the unwrapping directly, which is why it is a named
+    function rather than four lines inside a closure.
+    """
+
+    def test_a_return_carrying_json_is_unwrapped(self):
+        payload = V._leader_payload(V.gl.vm.Return('{"verdict": "substantiated"}'))
+        assert payload == {"verdict": "substantiated"}
+
+    def test_a_return_carrying_a_dict_is_unwrapped(self):
+        payload = V._leader_payload(V.gl.vm.Return({"verdict": "substantiated"}))
+        assert payload == {"verdict": "substantiated"}
+
+    def test_a_real_derivation_round_trips(self):
+        """What `compute` actually returns must survive the unwrap."""
+        import json
+
+        derived = V._derive(gathered(f"Pay {ADDR}"), (("payment_address", ADDR),), ADDR, (), 75)
+        unwrapped = V._leader_payload(V.gl.vm.Return(json.dumps(derived)))
+        assert unwrapped is not None
+        assert unwrapped["verdict"] == V.SUBSTANTIATED
+
+    def test_an_honest_leader_is_agreed_with_end_to_end(self):
+        """The whole validator path, minus the fetch: unwrap, canonicalize, compare.
+
+        This is the assertion whose absence let the bug ship.
+        """
+        import json
+
+        derived = V._derive(gathered(f"Pay {ADDR}"), (("payment_address", ADDR),), ADDR, (), 75)
+        leader_res = V.gl.vm.Return(json.dumps(derived))
+
+        theirs_raw = V._leader_payload(leader_res)
+        assert theirs_raw is not None, "an honest leader must never unwrap to None"
+        theirs = V.canonicalize_attestation(theirs_raw, ("payment_address",), 75)
+        mine = V.canonicalize_attestation(derived, ("payment_address",), 75)
+        assert V.verdicts_agree(mine, theirs, 15)
+
+    @pytest.mark.parametrize("raw", [
+        None, "", 0, [], {}, "not a Return", {"verdict": "substantiated"},
+    ])
+    def test_anything_that_is_not_a_return_is_rejected(self, raw):
+        """Including a bare dict -- the shape the buggy version expected."""
+        assert V._leader_payload(raw) is None
+
+    @pytest.mark.parametrize("inner", ["not json", "", "[]", "null", "123"])
+    def test_a_return_carrying_junk_is_rejected(self, inner):
+        assert V._leader_payload(V.gl.vm.Return(inner)) is None

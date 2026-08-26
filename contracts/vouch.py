@@ -1218,16 +1218,20 @@ class Vouch(gl.Contract):
         }
 
     def _write(self, key: str, payee: str, canon: dict, observed: dict, now: int) -> dict:
-        rows = DynArray[ClaimRow]()
-        for entry in canon["claims"]:
-            rows.append(
-                ClaimRow(
-                    key=str(entry["key"]),
-                    result=str(entry["result"]),
-                    method=str(entry["method"]),
-                    confidence=u256(int(entry["confidence"])),
-                )
+        # A plain list, never `DynArray[ClaimRow]()`. The SDK converts a list
+        # on assignment to a `DynArray` field; constructing one directly in
+        # memory escapes as an unclassified VM fault -- `exit_code 1` with no
+        # stderr, which is the same shape of failure MandateVault records for
+        # `gl.storage.copy_to_memory`. It costs a deployment to learn each time.
+        rows = [
+            ClaimRow(
+                key=str(entry["key"]),
+                result=str(entry["result"]),
+                method=str(entry["method"]),
+                confidence=u256(int(entry["confidence"])),
             )
+            for entry in canon["claims"]
+        ]
         blob = ""
         try:
             blob = json.dumps(observed)[:MAX_OBSERVED_LEN]
@@ -1401,23 +1405,24 @@ class Vouch(gl.Contract):
             derived = _derive(gathered, pairs, target, model_pairs, min_conf)
             return json.dumps(derived)
 
-        def validator_fn(leader: object) -> bool:
+        def validator_fn(leader_res: gl.vm.Result) -> bool:
             """Re-run everything and compare. Never trust the leader's answer.
 
             The validator fetches its own pages, runs its own substring checks
             and asks its own model. What it compares is the derived verdict, not
             the bytes -- validators legitimately fetch different bytes from the
             same URL, and requiring byte equality would make every check fail.
+
+            The argument is a `gl.vm.Result`, **not** the value `compute`
+            returned; the leader's payload is behind `.calldata`. Treating it as
+            the value directly type-checks, runs, and makes every validator
+            disagree with a leader that did nothing wrong -- silently, because
+            each node's own execution still succeeds.
             """
-            payload = leader
-            if isinstance(payload, str):
-                try:
-                    payload = json.loads(payload)
-                except (json.JSONDecodeError, TypeError, ValueError):
-                    return False
-            if not isinstance(payload, dict):
+            theirs_raw = _leader_payload(leader_res)
+            if theirs_raw is None:
                 return False
-            theirs = canonicalize_attestation(payload, expected_keys, min_conf)
+            theirs = canonicalize_attestation(theirs_raw, expected_keys, min_conf)
 
             gathered = _gather(urls, max_bytes)
             mine_raw = _derive(gathered, pairs, target, model_pairs, min_conf)
@@ -1443,6 +1448,30 @@ class Vouch(gl.Contract):
 #
 # Module level rather than methods: they run inside nondet blocks, where `self`
 # carries storage handles that are unusable.
+
+
+def _leader_payload(leader_res: object) -> dict | None:
+    """The leader's attestation, unwrapped. `None` means unusable.
+
+    `run_nondet_unsafe` hands the validator function a `gl.vm.Result`, and the
+    value `compute` returned is behind `.calldata`. A validator that compares
+    against the wrapper instead of its contents rejects every leader, including
+    an honest one -- and does it quietly, since each node's own execution
+    succeeds and only the vote comes back wrong.
+
+    Split out and named so it can be tested directly. The bug it exists to
+    prevent is invisible to every local check: the contract runs, the leader
+    produces a correct answer, and the transaction still ends UNDETERMINED.
+    """
+    if not isinstance(leader_res, gl.vm.Return):
+        return None
+    payload = leader_res.calldata
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except (json.JSONDecodeError, TypeError, ValueError):
+            return None
+    return payload if isinstance(payload, dict) else None
 
 
 def _listed_attestation(pairs: tuple, result: str) -> dict:
