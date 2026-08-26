@@ -1,4 +1,4 @@
-"""The decision engine: claims, screening, aggregation, and consensus.
+"""NOT AN INTELLIGENT CONTRACT -- the decision engine, inlined into contracts/vouch.py.
 
 No SDK import, no network, no model. Every rule that decides an outcome lives
 here so it can be tested exhaustively off-chain, and so that reading one file

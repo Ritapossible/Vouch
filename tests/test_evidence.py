@@ -137,10 +137,10 @@ class TestHtmlToText:
 class TestNormalize:
     def test_confusables_folded(self):
         """A vendor name spelled with a Cyrillic `e` is a different string."""
-        assert ev.normalize("Аcme") == ev.normalize("Acme")
+        assert ev.normalize("\u0410cme") == ev.normalize("Acme")
 
     def test_zero_width_stripped(self):
-        assert ev.normalize("Ac​me") == "acme"
+        assert ev.normalize("Ac\u200bme") == "acme"
 
     def test_case_and_punctuation(self):
         assert ev.normalize("ACME, Inc.") == "acme inc"
@@ -254,10 +254,10 @@ class TestRegressions:
     """Bugs found while building this module, kept fixed."""
 
     @pytest.mark.parametrize("spoofed", [
-        "Аcme",   # Cyrillic capital А
-        "аcme",   # Cyrillic small а
+        "\u0410cme",   # Cyrillic capital \u0410
+        "\u0430cme",   # Cyrillic small \u0430
         "ACME",   # plain, for the control
-        "Асme",   # Cyrillic А and с
+        "\u0410\u0441me",   # Cyrillic \u0410 and \u0441
     ])
     def test_uppercase_confusables_fold(self, spoofed):
         """The ported ordering folded lowercase confusables only.

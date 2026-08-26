@@ -1,4 +1,4 @@
-"""Evidence handling: URLs, page text, and addresses.
+"""NOT AN INTELLIGENT CONTRACT -- evidence handling, inlined into contracts/vouch.py.
 
 No SDK import, no network, no model. Everything here is a pure function of its
 arguments so the whole module is testable off-chain and identical in every
@@ -210,15 +210,15 @@ def registrable(host: object) -> str:
 # as their twin, which makes raw bytes silently fragile in transit -- an editor
 # or a diff view can substitute one with no visible trace. Escapes survive that.
 _CONFUSABLES = {
-    "а": "a", "е": "e", "о": "o", "р": "p", "с": "c",
-    "х": "x", "у": "y", "і": "i", "ѕ": "s", "ј": "j",
-    "һ": "h", "в": "b", "м": "m", "н": "h", "т": "t",
-    "α": "a", "ο": "o", "ε": "e", "ρ": "p", "τ": "t",
-    "ν": "v", "ι": "i", "κ": "k", "χ": "x", "β": "b",
-    "ı": "i", "İ": "i", "ſ": "s", "K": "k", "Å": "a",
+    "\u0430": "a", "\u0435": "e", "\u043e": "o", "\u0440": "p", "\u0441": "c",
+    "\u0445": "x", "\u0443": "y", "\u0456": "i", "\u0455": "s", "\u0458": "j",
+    "\u04bb": "h", "\u0432": "b", "\u043c": "m", "\u043d": "h", "\u0442": "t",
+    "\u03b1": "a", "\u03bf": "o", "\u03b5": "e", "\u03c1": "p", "\u03c4": "t",
+    "\u03bd": "v", "\u03b9": "i", "\u03ba": "k", "\u03c7": "x", "\u03b2": "b",
+    "\u0131": "i", "\u0130": "i", "\u017f": "s", "\u212a": "k", "\u212b": "a",
 }
 
-_ZERO_WIDTH = frozenset("­᠎​‌‍⁠﻿")
+_ZERO_WIDTH = frozenset("\u00ad\u180e\u200b\u200c\u200d\u2060\ufeff")
 
 
 _NAMED_ENTITIES = {
@@ -454,7 +454,7 @@ def canonical_address(addr: object) -> str:
     """A 0x-prefixed 40-hex-character address, lowercased, or "" if malformed.
 
     Case is discarded deliberately. EIP-55 checksum casing carries information,
-    but comparing addresses case-sensitively would make `0xAB…` and `0xab…`
+    but comparing addresses case-sensitively would make `0xAB\u2026` and `0xab\u2026`
     different payees, and a caller who lowercases their input would get a
     different cache key for the same counterparty.
     """
@@ -517,7 +517,7 @@ def foreign_addresses(page_normalized: object, own: object) -> tuple:
     # The spaced form keeps token boundaries, which is what makes the long-run
     # guard below correct: two addresses printed side by side stay separate.
     # The de-spaced form reassembles an address broken up by markup. Scanning
-    # only the de-spaced form would glue `0xAAA… 0xBBB…` into one 80-character
+    # only the de-spaced form would glue `0xAAA\u2026 0xBBB\u2026` into one 80-character
     # hex run and find neither; scanning only the spaced form would miss the
     # split one. Each covers the other's blind spot.
     for haystack in (page_normalized, compact(page_normalized)):
