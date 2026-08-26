@@ -1,9 +1,5 @@
 __pycache__/
-*.py[cod]
-.venv/
-venv/
+*.pyc
 .pytest_cache/
-.mypy_cache/
-.ruff_cache/
-*.egg-info/
-.DS_Store
+evidence/
+.venv/
