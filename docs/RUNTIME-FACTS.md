@@ -91,10 +91,11 @@ tends to live — and the address-on-site check is the highest-value check in th
 Rendered HTML carries both post-JavaScript content and attribute values, so it strictly
 dominates both raw `get()` and `mode="text"` for the check that matters.
 
-> **Not yet confirmed on a live node.** The SDK exposes `render`; whether every validator
-> supports `WebRender` is a separate question that only a deployment answers. Milestone 3
-> confirms it on studionet before the design commits, and `get()` remains the documented
-> fallback. An SDK signature proves the API exists, not that the network implements it.
+> **Confirmed on live nodes.** `render` works on studionet and on testnet-bradbury
+> validators: checks against a real page return `sources_reachable: 1` and settle. The
+> `get()` fallback remains in `_fetch` for a node without `WebRender`, where it can only
+> cost a substantiation, never manufacture one. What a live deployment additionally
+> revealed is that rendering is expensive enough to matter -- see item 6.
 
 ### 7. Block time is read from `gl.message_raw["datetime"]`
 
@@ -108,22 +109,44 @@ classified `[EXPECTED]` rejection rather than an unclassified fault.
 
 ---
 
-## Still open, and non-blocking
+## Measured during the build
+
+### 6. Fetch latency inside a consensus round is the binding constraint
+
+**Answered the hard way, on testnet-bradbury.**
+
+Every validator runs its own browser render, inside the consensus round, once
+per source. That cost is charged against the round's timeout, and it is paid
+five times over rather than once.
+
+With `wait_after_loaded="1000ms"`, checks against a single source on bradbury
+came back with `TIMEOUT` votes -- `["AGREE","TIMEOUT","AGREE","TIMEOUT","AGREE"]`
+on one round -- and a second identical check rotated through six rounds without
+settling. The same checks on studionet settled first time. Dropping the wait to
+`"0ms"` (`RENDER_WAIT` in the contract) made all three demo checks settle on
+bradbury on the first attempt.
+
+Two things follow, and the second is the one that matters for anyone tuning this:
+
+- **The wait is not free and is not per-check.** It is per validator per source.
+  `max_sources = 3` at a one-second wait is three seconds of idle waiting added
+  to every validator in the round.
+- **Zero does not mean unrendered.** The page still loads in a browser-like
+  environment and its scripts still run during load; what is skipped is the
+  extra idle wait for content that arrives *after* load. A deployment that needs
+  that wait can raise `RENDER_WAIT`, with the round timeout as its budget.
+
+The `TIMEOUT` votes are also worth reading correctly: consensus tolerated them.
+Rounds settled with three of five agreeing. A validator that times out does not
+corrupt a verdict, it just costs a rotation -- which is the reachability gate
+in [CONSENSUS](CONSENSUS.md#reachability) behaving as designed.
 
 ### 5. Fetch cost relative to `exec_prompt`
 
-Unmeasured. The cheapest-first architecture assumes fetch is much cheaper than inference,
-which is near-certainly true but is not yet a number in this repository. `render` is
-presumably costlier than `get`, which sharpens the question rather than changing it.
-
-### 6. Fetch latency inside a consensus round
-
-Unmeasured, and it determines whether `max_sources = 3` is generous or already too many.
-Recourse's adjudication rounds complete, so the order of magnitude is workable; the specific
-figure for a rendered fetch is not established.
-
-Neither blocks implementation. Both should be measured before anyone puts an uncached check
-in a latency-sensitive payment path.
+Still unmeasured as a number, and the cheapest-first architecture does not
+depend on the exact figure -- only on fetch being much cheaper than inference,
+which item 6 does not contradict. Worth a benchmark before anyone runs uncached
+checks at volume.
 
 ---
 

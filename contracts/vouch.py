@@ -1498,6 +1498,24 @@ def _listed_attestation(pairs: tuple, result: str) -> dict:
     }
 
 
+# How long to wait after DOM load for JavaScript to emit more content.
+#
+# Zero, and the zero is measured. Every validator runs its own browser render
+# inside the consensus round, so this wait is paid once per validator per
+# source, and it is charged against the round's timeout. At `1000ms`, checks on
+# testnet-bradbury came back with `TIMEOUT` votes and rounds that rotated
+# without settling; the same checks on studionet were fine, which is exactly the
+# per-network latency question docs/RUNTIME-FACTS.md item 6 leaves open.
+#
+# Dropping to zero does not give up rendering. The page is still loaded in a
+# browser-like environment and its scripts still run during load; what is given
+# up is the extra idle wait for content that arrives *after* load. Published
+# payment details are part of the document on essentially every page that has
+# them, and a deployment that needs the wait can raise this constant -- with
+# the round timeout in mind, because that is the budget it spends.
+RENDER_WAIT = "0ms"
+
+
 def _fetch(url: str, max_bytes: int) -> tuple:
     """Fetch and flatten one source. `None` text means unreachable.
 
@@ -1511,7 +1529,7 @@ def _fetch(url: str, max_bytes: int) -> tuple:
     """
     raw = None
     try:
-        raw = gl.nondet.web.render(url, mode="html", wait_after_loaded="1000ms")
+        raw = gl.nondet.web.render(url, mode="html", wait_after_loaded=RENDER_WAIT)
     except Exception:
         raw = None
     if raw is None:

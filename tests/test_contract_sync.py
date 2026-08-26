@@ -117,6 +117,66 @@ class TestArtifactIsCurrent:
         assert not missing, f"unresolved names: {sorted(missing)}"
 
 
+class TestCompactArtifact:
+    """`dist/vouch.min.py` is the deploy artifact for size-limited networks.
+
+    Testnet Bradbury rejects the canonical contract outright: at ~61 KB the whole
+    source is published as transaction data and the deploy fails with
+    `BlockPubdataLimitReached` before gas estimation completes. Stripping comments
+    and docstrings takes it to ~35 KB, which fits.
+
+    It is checked in so a Bradbury deployment stays verifiable byte for byte
+    against a file in this repository -- the guarantee is "the source on the
+    explorer is a source you can review", and both artifacts keep it.
+    """
+
+    MIN = ROOT / "dist" / "vouch.min.py"
+
+    def test_exists(self):
+        assert self.MIN.exists(), "run `python tools/build_min.py`"
+
+    def test_is_not_stale(self):
+        result = subprocess.run(
+            [sys.executable, str(ROOT / "tools" / "build_min.py"), "--check"],
+            capture_output=True, text=True,
+        )
+        assert result.returncode == 0, result.stderr or result.stdout
+
+    def test_public_surface_is_identical(self):
+        """The whole point: same contract, less prose. A divergence here means
+        the artifact people deploy is not the contract people reviewed."""
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "build_min", ROOT / "tools" / "build_min.py"
+        )
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        canonical = mod.public_surface(CONTRACT.read_text(encoding="utf-8"))
+        compact = mod.public_surface(self.MIN.read_text(encoding="utf-8"))
+        assert canonical == compact
+        # The eight in docs/API.md: five views and three writes.
+        assert len(canonical) == 8
+
+    def test_pins_the_same_runner(self):
+        assert (
+            self.MIN.read_text(encoding="utf-8").splitlines()[0]
+            == CONTRACT.read_text(encoding="utf-8").splitlines()[0]
+        )
+
+    def test_is_smaller_and_pure_ascii(self):
+        raw = self.MIN.read_bytes()
+        assert all(b < 128 for b in raw)
+        assert len(raw) < len(CONTRACT.read_bytes())
+
+    def test_carries_no_docstrings_or_comments(self):
+        """If prose survived, the size win is not what it claims to be."""
+        import ast
+        tree = ast.parse("\n".join(self.MIN.read_text(encoding="utf-8").splitlines()[1:]))
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                assert ast.get_docstring(node) is None, f"{node.name} kept its docstring"
+
+
 class TestRepositoryShape:
     def test_contracts_dir_holds_only_the_contract(self):
         found = sorted(p.name for p in (ROOT / "contracts").glob("*.py"))

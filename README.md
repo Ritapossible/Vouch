@@ -8,14 +8,16 @@ demonstrably exist.**
 
 ---
 
-> ### Status: specification, pre-implementation
+> ### Status: deployed and verified on two networks
 >
-> **No contract has been written and nothing is deployed.** This repository contains the
-> design for an Intelligent Contract, not the contract. Every deployment address, test
-> count, and benchmark that appears in a shipped GenLayer repository is *absent here on
-> purpose* — see [Status and known gaps](#status-and-known-gaps), and
-> [`docs/RUNTIME-FACTS.md`](docs/RUNTIME-FACTS.md) for the SDK behaviours that must be
-> confirmed before implementation begins.
+> | Network | Address | Artifact |
+> |---|---|---|
+> | Studionet | `0x42AA00A139652737285d70f3a4Fda32b478eac98` | `contracts/vouch.py` |
+> | Testnet Bradbury | `0x91d27530546ABa4886cA9A93D80DB4C8B16EB156` | `dist/vouch.min.py` |
+>
+> All three demo cases are confirmed live on **both** networks, each transaction
+> ACCEPTED, each verdict decided by deterministic code with no model involved.
+> 369 tests pass. See [Status and known gaps](#status-and-known-gaps).
 
 ---
 
@@ -279,8 +281,6 @@ results promoted for review. Different call pattern, same contract.
 
 ## Integration sketch
 
-The intended shape. Not yet implemented.
-
 ```python
 # 1. Mandate first — cheaper, and may deny with zero network cost.
 allowed = mandate_vault.request(payee=payee, amount=amount, memo=memo)
@@ -356,17 +356,38 @@ from DedupRegistry, where the trap is documented in full.
 
 ## Status and known gaps
 
-Nothing has been built. This section exists now so it gets filled in honestly rather than
-written after the fact.
+Written before the build so it would be filled in honestly rather than after the fact.
+It has been.
 
-**Not yet done — all of it:**
+**Done:**
 
-- [ ] No contract. No tests. Nothing deployed. `genvm-lint` never run.
-- [ ] The `gl.nondet.web` signature, failure mode, redirect handling, and timeout behaviour
-      are **assumed, not confirmed** — see [`docs/RUNTIME-FACTS.md`](docs/RUNTIME-FACTS.md).
-- [ ] Whether a fetch and an `exec_prompt` can share one nondet block is unconfirmed and
-      affects the stage boundaries.
-- [ ] No benchmark for fetch latency inside a consensus round.
+- [x] Contract built, deployed and verified on studionet and testnet-bradbury.
+- [x] 369 tests. `genvm-lint` validates the contract: 8 methods, 5 views, 3 writes,
+      and a schema matching [`docs/API.md`](docs/API.md).
+- [x] All three demo cases confirmed live on both networks -- `substantiated`,
+      `unsubstantiated` and `contradicted`, three different answers, no model involved.
+- [x] Every blocking runtime fact answered against SDK source or a live node, with the
+      source recorded -- see [`docs/RUNTIME-FACTS.md`](docs/RUNTIME-FACTS.md). Item 4
+      landed favourably: `web.render` exists, so JavaScript-rendered vendor pages are
+      readable and the fallback guidance the build plan owed is not owed.
+- [x] Fetch latency inside a consensus round measured, and it changed the contract --
+      `RENDER_WAIT` is `0ms` because a one-second wait timed validators out on bradbury.
+
+**Still open:**
+
+- [ ] **Cache-key grinding is unmitigated.** An attacker varying claim values forces
+      unbounded fetch and inference cost, since every distinct claims dict is a cache miss.
+      Deposit, permissioning or per-payee rate limiting -- undecided. This blocks anything
+      paying for its own inference; it does not block a demo. See
+      [`docs/SECURITY.md`](docs/SECURITY.md#denial-of-service).
+- [ ] **Claim vocabulary is fixed in code but not in the caller's contract.** The five keys
+      are enforced and an unknown key raises, which closes the silent-drop hole. What is
+      still open is whether values should be schema'd rather than free strings.
+- [ ] No benchmark for fetch cost relative to `exec_prompt` as an absolute number.
+- [ ] Milestone 5 (composition with MandateVault) is specified in
+      [`docs/COMPOSITION.md`](docs/COMPOSITION.md) and not yet wired end to end.
+
+**Known design gaps, independent of implementation:**
 
 **Known design gaps, independent of implementation:**
 
@@ -385,15 +406,8 @@ written after the fact.
   cache key fragile and the prompt inconsistent. A fixed claim schema is probably right and
   is not yet specified — see [`docs/DECISIONS.md`](docs/DECISIONS.md).
 
-**Build order note:** Vouch is the second of two contracts and is deliberately scheduled
-after [Recourse](https://github.com/Ritapossible/Recourse). It is the lower-risk build, and
-it makes MandateVault retroactively more valuable — but its demo (a correct refusal) is
-quieter than Recourse's, which is the reason for the ordering rather than any judgment about
-which is more useful.
-
 ---
 
 ## License
 
-Not yet chosen. This is a specification; the license question belongs with the first line of
-code.
+MIT. See [`LICENSE`](LICENSE).
