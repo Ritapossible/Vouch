@@ -16,8 +16,14 @@ demonstrably exist.**
 > | Testnet Bradbury | `0x91d27530546ABa4886cA9A93D80DB4C8B16EB156` | `dist/vouch.min.py` |
 >
 > All three demo cases are confirmed live on **both** networks, each transaction
-> ACCEPTED, each verdict decided by deterministic code with no model involved.
-> 369 tests pass. See [Status and known gaps](#status-and-known-gaps).
+> finalized. On studionet every claim type and every resolution path has run and
+> been read back out of contract storage, the model stage included. On bradbury
+> every deterministic path has; the model stage does not settle there, and the
+> reason is measured rather than guessed -- see
+> [Status and known gaps](#status-and-known-gaps).
+>
+> Separately, 369 tests run locally under `pytest`. They are not on-chain tests
+> and nothing above rests on them; the addresses are the evidence.
 
 ---
 
@@ -37,7 +43,7 @@ demonstrably exist.**
 - [Where it is not a fit](#where-it-is-not-a-fit)
 - [Integration sketch](#integration-sketch)
 - [Documentation](#documentation)
-- [Planned layout](#planned-layout)
+- [Layout](#layout)
 - [Status and known gaps](#status-and-known-gaps)
 
 ---
@@ -324,35 +330,76 @@ three-valued return imply a rigour the caller does not apply.
 | [`docs/RUNTIME-FACTS.md`](docs/RUNTIME-FACTS.md) | SDK behaviours to confirm before implementation |
 | [`docs/BUILD-PLAN.md`](docs/BUILD-PLAN.md) | Milestones, the demo, the cut list |
 
-## Planned layout
+## Layout
 
 ```
 contracts/
   vouch.py              THE CONTRACT          <- the only contract; deploy this
+dist/
+  vouch.min.py          the same contract, prose stripped, for size-limited networks
 lib/
-  vouch_core.py         screen, cache keys, verdict coercion
-  vouch_evidence.py     fetch, normalize, address corroboration
-  vouch_prompts.py      prompt builder
+  vouch_core.py         claims, screening, aggregation, consensus comparison
+  vouch_evidence.py     URLs, markup flattening, the address check
+  vouch_prompts.py      the stage-3 prompt builder
 tools/
-  build_contract.py     regenerates the contract from lib/
+  build_contract.py     regenerates contracts/vouch.py from lib/
+  build_min.py          regenerates dist/vouch.min.py from the contract
   verify.py             proves one contract, lint-clean; writes evidence/
-  verify_deployment.py  proves a deployed address holds exactly this source
+  deploy.mjs            deploys to studionet or bradbury, with the testnet gas shim
 tests/
-  test_vouch_core.py
-  test_evidence.py
-  test_contract_sync.py
+  test_vouch_core.py    the decision engine, and the fail-open invariant
+  test_evidence.py      URLs, markup, and the address check adversarially
+  test_pipeline.py      the three demo cases against the real contract module
+  test_model_stage.py   stage 3, including the model's ceiling
+  test_contract_sync.py guards on the generated artifacts and the repo shape
+  conftest.py           the SDK scaffolding, explained
+  stubs/                stand-in for the VM host module
+fixtures/
+  acme-real.html        vendor page naming the address being paid
+  acme-moved.html       the same vendor, a substituted address
 evidence/
-  validation.json
-  deployment.json
+  validation.json       written by tools/verify.py
 docs/
-  …
+  ARCHITECTURE, API, CONSENSUS, SECURITY, DECISIONS, COMPOSITION,
+  RUNTIME-FACTS, BUILD-PLAN
 ```
+
+`verify_deployment.py` from the predecessor repositories is **not** ported here.
+Studionet's explorer serves the deployed source directly, and the contract's
+SHA-256 is recorded in `evidence/validation.json` for a byte-for-byte comparison
+against it, which answers the same question without a second tool to keep
+working.
 
 **GenLayer deploys exactly one file.** `genlayer deploy --contract` reads a single path and
 does no module bundling, so a local `import vouch_core` resolves on a dev box and fails
 on-chain — invisibly to every check that runs with the repo on `sys.path`. The build step
 splices `lib/` into marked regions of the contract and a sync test fails on drift. Inherited
 from DedupRegistry, where the trap is documented in full.
+
+## Running it yourself
+
+```bash
+python tools/build_contract.py --check   # the deployed file matches lib/
+python tools/build_min.py --check        # the compact artifact matches it too
+python -m pytest tests/ -q               # the suite
+python tools/verify.py                   # classify every .py, lint the contract
+```
+
+**Python 3.12 or newer.** The GenVM SDK uses PEP 695 generics (`class Lazy[T]`),
+so 3.11 cannot import it -- and the failure is quiet, because linting still
+passes while validation silently skips. `tools/verify.py` selects a 3.12+
+interpreter itself rather than trusting whatever `python3` points at.
+
+**Two test files import the GenVM SDK**, because they exercise the generated
+`contracts/vouch.py` rather than the `lib/` sources -- the point being that what
+is tested is the file that deploys. With the SDK importable that is 369 tests;
+without it, `tests/test_model_stage.py` skips and the rest still run, so a clean
+checkout gives **338 passed, 1 skipped** and no failures. Nothing is hidden by a
+missing SDK except the model-stage tests, which say so.
+
+`tests/conftest.py` explains the two pieces of scaffolding this needs: a stub for
+the VM host module, and a recorded message on file descriptor 0, which the SDK
+decodes at import time.
 
 ## Status and known gaps
 
@@ -373,30 +420,45 @@ It has been.
 - [x] Fetch latency inside a consensus round measured, and it changed the contract --
       `RENDER_WAIT` is `0ms` because a one-second wait timed validators out on bradbury.
 
-**Exercised on a live network, not only in tests.** Every claim type, every
-resolution path and every verdict has run on studionet and been read back out of
-contract storage:
+**Exercised on live networks, not only in tests.** Every claim type, every
+resolution path and every verdict has run on-chain and been read back out of
+contract storage.
 
-| Path | On-chain result |
-|---|---|
-| `payment_address` on the page | `substantiated`, deterministic, confidence 100 |
-| `payment_address` absent, page unreachable | `unsubstantiated`, `sources_reachable: 0` |
-| `payment_address` absent, page names others | `contradicted`, deterministic |
-| `domain` | `substantiated`, deterministic |
-| `registry_id` literal on page | `substantiated`, deterministic |
-| `legal_name` / `service` | resolved by **model**, with a quote recorded under `observed` |
-| allowlisted payee | `substantiated`, `resolved_by: list`, zero fetches |
-| denylisted payee | `contradicted`, `resolved_by: list`, zero fetches |
-| cache hit within TTL | `resolved_by: cache` |
-| unknown claim key | rejected `[EXPECTED] UNKNOWN_CLAIM` |
+| Path | Verdict | Studionet | Bradbury |
+|---|---|---|---|
+| `payment_address` on the page | `substantiated` | yes | yes |
+| source unreachable | `unsubstantiated` | yes | yes |
+| page names a different address | `contradicted` | yes | yes |
+| `domain` | `substantiated` | yes | yes |
+| `registry_id` literal on page | `substantiated` | yes | yes |
+| allowlisted payee (`resolved_by: list`) | `substantiated` | yes | yes |
+| denylisted payee (`resolved_by: list`) | `contradicted` | yes | yes |
+| unknown claim key | `[EXPECTED] UNKNOWN_CLAIM` | yes | yes |
+| cache hit (`resolved_by: cache`) | unchanged, no fetch | yes | -- |
+| **model stage** (`resolved_by: model`) | mixed | yes | **no** |
 
-The model stage is the one worth singling out. Mixing a deterministic claim and
-two model claims in one call returned `payment_address` substantiated at 100,
-`service` substantiated at 95 with the passage it relied on, and `legal_name`
-unsubstantiated -- and the transaction still reached consensus. That is the
-harder consensus case, because it is the one where validators run their own
-model and the bucketed tolerance in `verdicts_agree` has to absorb the spread
-without absorbing a disagreement.
+Two rows deserve their footnotes rather than a tick.
+
+**The model stage does not settle on bradbury.** It works on studionet, where one
+call mixing a deterministic claim with two model claims returned
+`payment_address` substantiated at 100, `service` substantiated at 95 with the
+passage it relied on, and `legal_name` unsubstantiated -- and reached consensus.
+That is the harder consensus case, because every validator runs its own model and
+the bucketed tolerance in `verdicts_agree` has to absorb the spread without
+absorbing a genuine disagreement. On bradbury the same call was submitted three
+times and never settled: it sits in `NOT_VOTED`, rotating. Consistent with
+[RUNTIME-FACTS item 6](docs/RUNTIME-FACTS.md#6-fetch-latency-inside-a-consensus-round-is-the-binding-constraint)
+-- bradbury's round budget is tight enough that a render plus an inference call
+per validator does not fit, where the deterministic stages do. **Nothing suggests
+a contract fault**: every deterministic path settles on bradbury, and the model
+path settles on studionet. It is a per-network latency ceiling, and it is the
+reason the cache row is untested there too, since the call it would repeat never
+recorded anything to hit.
+
+**A write ACCEPTED on bradbury is not immediately readable.** Reading an
+attestation straight after its transaction reports ACCEPTED returns `null`, and
+the record appears shortly after. Worth knowing before wiring anything that reads
+its own write.
 
 **Still open:**
 

@@ -1,7 +1,9 @@
 # Consensus model
 
-> Specification. The block structure depends on SDK behaviour not yet confirmed — see
-> [RUNTIME-FACTS](RUNTIME-FACTS.md).
+> Implemented. The block structure question is settled: a fetch and an `exec_prompt`
+> share one nondet block, confirmed in [RUNTIME-FACTS](RUNTIME-FACTS.md) item 1. The
+> reachability gate and the bucketed tolerance described here have both been exercised
+> on-chain, the tolerance under a live model.
 
 ## The rule
 

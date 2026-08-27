@@ -1,6 +1,8 @@
 # Architecture
 
-> Specification. Nothing here is implemented.
+> Implemented. The four stages below are `check` in `contracts/vouch.py`, and each has
+> run on a live network -- see the per-network table in the
+> [README](../README.md#status-and-known-gaps).
 
 ## The organizing idea
 
