@@ -373,6 +373,31 @@ It has been.
 - [x] Fetch latency inside a consensus round measured, and it changed the contract --
       `RENDER_WAIT` is `0ms` because a one-second wait timed validators out on bradbury.
 
+**Exercised on a live network, not only in tests.** Every claim type, every
+resolution path and every verdict has run on studionet and been read back out of
+contract storage:
+
+| Path | On-chain result |
+|---|---|
+| `payment_address` on the page | `substantiated`, deterministic, confidence 100 |
+| `payment_address` absent, page unreachable | `unsubstantiated`, `sources_reachable: 0` |
+| `payment_address` absent, page names others | `contradicted`, deterministic |
+| `domain` | `substantiated`, deterministic |
+| `registry_id` literal on page | `substantiated`, deterministic |
+| `legal_name` / `service` | resolved by **model**, with a quote recorded under `observed` |
+| allowlisted payee | `substantiated`, `resolved_by: list`, zero fetches |
+| denylisted payee | `contradicted`, `resolved_by: list`, zero fetches |
+| cache hit within TTL | `resolved_by: cache` |
+| unknown claim key | rejected `[EXPECTED] UNKNOWN_CLAIM` |
+
+The model stage is the one worth singling out. Mixing a deterministic claim and
+two model claims in one call returned `payment_address` substantiated at 100,
+`service` substantiated at 95 with the passage it relied on, and `legal_name`
+unsubstantiated -- and the transaction still reached consensus. That is the
+harder consensus case, because it is the one where validators run their own
+model and the bucketed tolerance in `verdicts_agree` has to absorb the spread
+without absorbing a disagreement.
+
 **Still open:**
 
 - [ ] **Cache-key grinding is unmitigated.** An attacker varying claim values forces
