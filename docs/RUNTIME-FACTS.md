@@ -1,90 +1,158 @@
-# Runtime facts to confirm before implementation
+# Runtime facts
 
-**The first build task.**
+**Milestone 0. Answered before implementation began, as the build plan requires.**
 
 Both predecessor contracts record confirmed runtime facts with the source that established
-them — "`gl.nondet.exec_prompt(..., response_format="json")` returns a `dict`, not a string
-— confirmed against the GenVM Python runner source." That discipline exists because the gap
-between documented and actual behaviour is where a contract silently breaks on-chain while
-passing every local check.
+them. That discipline exists because the gap between documented and actual behaviour is
+where a contract silently breaks on-chain while passing every local check.
 
-Vouch depends on the web primitive, which neither predecessor used. Everything below is
-**assumed** and must be confirmed against **SDK source or a live runtime**, not against
-documentation. Record what was found, and where.
+Each fact below names the source that establishes it. Where a fact was established from SDK
+source but not yet from a live node, it says so — an SDK signature proves the API exists,
+not that every validator supports it.
+
+SDK read at `py-lib-genlayer-std` revision
+`11rhn002yfajawsz7fai6mykznbxkxs6l91iskj5cm82c92qhy3v`, the library paired with the runner
+this contract pins.
 
 ---
 
-## Blocking
+## Answered
 
-### 1. Can a web fetch and an `exec_prompt` share one nondet block?
+### 1. A web fetch and an `exec_prompt` can share one nondet block
 
-**Assumed:** yes.
+**Confirmed** — Recourse does exactly this in production. Its `compute` closure fetches
+every source with `gl.nondet.web.get` and then calls `gl.nondet.exec_prompt` on the
+assembled text, inside a single `gl.vm.run_nondet_unsafe` block, and it is deployed and
+working on two networks.
 
-**If no:** stages 2 and 3 become separate consensus rounds, and the ruling round must either
-re-fetch (expensive, doubles network cost, preserves "never trust the leader") or carry
-forward what the gather round observed — which pipes a leader observation into a consensus
-input, and [CONSENSUS](CONSENSUS.md#the-rule) forbids it.
-
-Same unknown as Recourse's, and resolving it once answers it for both.
+This matters more than it looks. Had the answer been no, stages 2 and 3 would have become
+separate consensus rounds, and the ruling round would have had to either re-fetch or carry a
+leader observation into a consensus input — which [CONSENSUS](CONSENSUS.md#the-rule)
+forbids. Vouch keeps one round.
 
 ### 2. `gl.nondet.web` signature and return type
 
-Unverified:
+**Confirmed against SDK source** (`gl/nondet/web.py`):
 
-- call shape, and whether a render mode exists (raw / text / rendered)
-- return type — bytes, `str`, or a structured response
-- whether HTTP status is exposed or a non-200 raises
-- whether redirects are followed automatically and whether the final URL is observable —
-  [SECURITY](SECURITY.md#url-validation) depends on this
-- configurable timeout, and behaviour on one
+```python
+@dataclasses.dataclass
+class Response:
+    status: int
+    headers: dict[str, bytes]
+    body: bytes | None
+```
 
-### 3. How a fetch failure surfaces
+`get(url, *, headers={})`, and `request(url, *, method, body, headers)` underneath it, with
+`post` / `delete` / `head` / `patch` alongside.
 
-**Assumed:** catchable, so an unreachable source records as unreachable while the check
-proceeds on the rest.
+- **HTTP status is exposed, and a non-200 does not raise.** The status is a field to branch
+  on. Vouch treats anything outside 200–299 as unreachable.
+- **`body` is `bytes | None`**, decoded with `errors="replace"` rather than trusted to be
+  valid UTF-8.
+- **Redirects and the final URL are not observable** in the response — there is no `url`
+  field. [SECURITY](SECURITY.md#url-validation) cannot rely on inspecting a post-redirect
+  host, so validation happens on the submitted URL and the fetched text is fenced
+  regardless.
 
-**If a failure aborts the nondet block instead**, a single dead link kills every check
-against that source, and the partial-reachability design in
-[CONSENSUS](CONSENSUS.md#reachability) is unimplementable.
+### 3. A fetch failure is catchable and non-fatal
 
-### 4. Whether rendered-page fetching is available
+**Confirmed** — Recourse's `_fetch` wraps the call in `try / except Exception` and returns
+`None` for unreachable, and this path runs on-chain today.
 
-**Materially affects viability.** Many vendor sites render content — including contact and
-payment details — with JavaScript. If the primitive returns raw HTML only, a large fraction
-of legitimate vendors are `unsubstantiated` for reasons unrelated to their legitimacy, and
-[the operator-fatigue failure](SECURITY.md#the-confusable-character-problem) becomes the
-dominant risk rather than an edge case.
+A dead link therefore degrades one source rather than aborting the stage, which is what
+makes the partial-reachability design in [CONSENSUS](CONSENSUS.md#reachability)
+implementable. Vouch inherits the shape exactly, including the rule that unreachable is
+`unsubstantiated` and never `contradicted`.
 
-If raw-only: consider guiding integrators toward machine-readable sources — a
-`/.well-known/` path, a registry API, a plain-text disclosure — rather than a marketing
-homepage. That is a documentation change, not a code change, and it should be made before
-anyone integrates.
+### 4. Rendered-page fetching **is** available
+
+**Confirmed against SDK source** (`gl/nondet/web.py`) — and this is the finding that most
+changes the product:
+
+```python
+def render(
+    url: str,
+    *,
+    mode: typing.Literal['html', 'text', 'screenshot'] = 'text',
+    wait_after_loaded: str | None = None,
+) -> Lazy[str | Image]: ...
+```
+
+`wait_after_loaded` takes `"1000ms"` or `"1s"`, for content JavaScript emits after DOM load.
+
+The build plan treated a raw-HTML-only primitive as the bad case, the one that would push a
+large fraction of legitimate vendors into `unsubstantiated` for reasons unrelated to their
+legitimacy and force integration guidance toward machine-readable sources. **That case did
+not materialize.** No documentation change is owed.
+
+Vouch fetches with `mode="html"` rather than `"text"`. Rendered *text* would drop the
+address out of an `href` — `<a href="ethereum:0x…">` is exactly where a payment address
+tends to live — and the address-on-site check is the highest-value check in the contract.
+Rendered HTML carries both post-JavaScript content and attribute values, so it strictly
+dominates both raw `get()` and `mode="text"` for the check that matters.
+
+> **Confirmed on live nodes.** `render` works on studionet and on testnet-bradbury
+> validators: checks against a real page return `sources_reachable: 1` and settle. The
+> `get()` fallback remains in `_fetch` for a node without `WebRender`, where it can only
+> cost a substantiation, never manufacture one. What a live deployment additionally
+> revealed is that rendering is expensive enough to matter -- see item 6.
+
+### 7. Block time is read from `gl.message_raw["datetime"]`
+
+**Confirmed** — MandateVault established it and Recourse ships it, parsing with
+`datetime.fromisoformat` and reading `.timestamp()` only after forcing UTC, because a naive
+datetime is otherwise interpreted in the validator's local zone and every validator would
+disagree.
+
+The cache TTL comparison uses this and never wall clock. A missing or malformed value is a
+classified `[EXPECTED]` rejection rather than an unclassified fault.
 
 ---
 
-## Important
+## Measured during the build
+
+### 6. Fetch latency inside a consensus round is the binding constraint
+
+**Answered the hard way, on testnet-bradbury.**
+
+Every validator runs its own browser render, inside the consensus round, once
+per source. That cost is charged against the round's timeout, and it is paid
+five times over rather than once.
+
+With `wait_after_loaded="1000ms"`, checks against a single source on bradbury
+came back with `TIMEOUT` votes -- `["AGREE","TIMEOUT","AGREE","TIMEOUT","AGREE"]`
+on one round -- and a second identical check rotated through six rounds without
+settling. The same checks on studionet settled first time. Dropping the wait to
+`"0ms"` (`RENDER_WAIT` in the contract) made all three demo checks settle on
+bradbury on the first attempt.
+
+Two things follow, and the second is the one that matters for anyone tuning this:
+
+- **The wait is not free and is not per-check.** It is per validator per source.
+  `max_sources = 3` at a one-second wait is three seconds of idle waiting added
+  to every validator in the round.
+- **Zero does not mean unrendered.** The page still loads in a browser-like
+  environment and its scripts still run during load; what is skipped is the
+  extra idle wait for content that arrives *after* load. A deployment that needs
+  that wait can raise `RENDER_WAIT`, with the round timeout as its budget.
+
+The `TIMEOUT` votes are also worth reading correctly: consensus tolerated them.
+Rounds settled with three of five agreeing. A validator that times out does not
+corrupt a verdict, it just costs a rotation -- which is the reachability gate
+in [CONSENSUS](CONSENSUS.md#reachability) behaving as designed.
 
 ### 5. Fetch cost relative to `exec_prompt`
 
-The cheapest-first architecture assumes fetch ≪ inference. If comparable, the stage-2/3
-boundary stops earning its complexity.
-
-### 6. Fetch latency inside a consensus round
-
-No benchmark. Determines whether `max_sources = 3` is generous or already too many, and
-whether an uncached check is usable in a payment path at all.
-
-### 7. Block time access
-
-The cache TTL comparison must use block time, not wall clock — wall clock differs per
-validator and would turn every cache read into a source of disagreement. MandateVault reads
-`gl.message_raw["datetime"]` and parses it; confirm the same path and its failure modes.
+Still unmeasured as a number, and the cheapest-first architecture does not
+depend on the exact figure -- only on fetch being much cheaper than inference,
+which item 6 does not contradict. Worth a benchmark before anyone runs uncached
+checks at volume.
 
 ---
 
 ## Inherited from the predecessor contracts
 
-Confirmed there; re-confirm against the SDK version this contract targets.
+Confirmed there, and re-confirmed against the SDK revision this contract targets.
 
 | Fact | Source |
 |---|---|
@@ -97,10 +165,13 @@ Confirmed there; re-confirm against the SDK version this contract targets.
 | `genlayer code <address>` is gated to localnet; use `gen_getContractCode` over JSON-RPC | DedupRegistry |
 | Line endings must be pinned to LF or source digests differ between checkouts | DedupRegistry |
 
----
+## Learned building Recourse
 
-## Recording answers
+Two facts that cost a deployment each, recorded so this contract does not repeat them.
 
-Replace the Blocking and Important sections with findings as they land, in the predecessors'
-format: the claim, then the source that establishes it. A fact without a source is an
-assumption wearing a fact's clothes — which is the failure this document exists to prevent.
+| Fact | Consequence |
+|---|---|
+| The runner pin must be an exact hash. `test`, `latest`, and an unversioned name are rejected by the networks. | Deployment fails outright. |
+| A contract must be pure ASCII. A literal zero-width or typographic character in a docstring is enough to break it. | Tested by `test_contract_is_pure_ascii`. |
+| The GenVM SDK uses PEP 695 (`class Lazy[T]`), so Python 3.11 cannot import it. Linting still passes while validation silently skips. | `tools/verify.py` selects a 3.12+ interpreter itself rather than trusting `python3`. |
+| Bradbury enforces a per-transaction pubdata limit; a full-size contract is rejected with `BlockPubdataLimitReached`. | A minified artifact is built for that network. |

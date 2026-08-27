@@ -1,6 +1,7 @@
 # API reference
 
-> Specification. Nothing here is implemented.
+> Implemented and deployed. `genvm-lint schema` validates the contract against this
+> document: eight methods, five views and three writes, with the constructor below.
 
 ## Constructor
 
