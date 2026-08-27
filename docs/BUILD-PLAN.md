@@ -1,5 +1,18 @@
 # Build plan
 
+> **Outcome.** Every milestone below is done, and both exit conditions that mattered
+> held: the whole demo works with no model in it (Milestone 3), and an injected
+> accusation in page text cannot produce `contradicted` (Milestone 4). Nothing from
+> the cut list was cut. Milestone 5, composition with MandateVault, is specified in
+> [COMPOSITION](COMPOSITION.md) and is the one piece not yet wired end to end.
+>
+> Two things the plan did not predict, both recorded where they belong: the SDK
+> turned out to expose `web.render`, so the bad branch of item 4 never happened
+> ([RUNTIME-FACTS](RUNTIME-FACTS.md#4-rendered-page-fetching-is-available)); and
+> rendering proved expensive enough inside a consensus round to change the contract
+> ([item 6](RUNTIME-FACTS.md#6-fetch-latency-inside-a-consensus-round-is-the-binding-constraint)).
+
+
 > Vouch is the **second** of two contracts.
 > [Recourse](https://github.com/Ritapossible/Recourse) is scheduled first — not because it is
 > more useful, but because its demo is louder. Vouch's demo is a correct refusal, which is

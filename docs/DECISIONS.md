@@ -1,7 +1,8 @@
 # Design decisions
 
 What was chosen, and what each choice cost. Written before implementation so the reasoning
-is recorded while it is live.
+was recorded while it was live, and left standing afterwards -- including where building
+it proved a decision more expensive than expected.
 
 ---
 

@@ -136,6 +136,22 @@ Two things follow, and the second is the one that matters for anyone tuning this
   extra idle wait for content that arrives *after* load. A deployment that needs
   that wait can raise `RENDER_WAIT`, with the round timeout as its budget.
 
+**The ceiling is real, and the model stage sits above it on bradbury.** Dropping
+the wait to zero fixed every deterministic check there. It did not fix stage 3: a
+call carrying two model claims was submitted three times to bradbury and never
+settled, sitting in `NOT_VOTED` and rotating. The identical call settles on
+studionet and returns a correct mixed verdict.
+
+The arithmetic is the explanation. A deterministic check costs one render per
+validator. Stage 3 costs a render **plus an inference call** per validator, and
+bradbury's round budget does not fit that where studionet's does. It is not a
+contract fault -- every deterministic path settles on bradbury, and the model
+path settles on studionet -- it is a per-network latency ceiling, and it is the
+sharpest available answer to the question this item asks.
+
+Anyone deploying stage 3 to a network should measure this before relying on it,
+and treat `max_sources` as a latency budget rather than a coverage knob.
+
 The `TIMEOUT` votes are also worth reading correctly: consensus tolerated them.
 Rounds settled with three of five agreeing. A validator that times out does not
 corrupt a verdict, it just costs a rotation -- which is the reachability gate

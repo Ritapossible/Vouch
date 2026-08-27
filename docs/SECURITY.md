@@ -1,6 +1,10 @@
 # Security and threat model
 
-> Specification. Nothing has been tested, because nothing has been built.
+> Implemented and tested. The properties argued for here are asserted in
+> `tests/test_vouch_core.py` and `tests/test_model_stage.py` -- that no error path
+> produces `substantiated`, that a model can never reach `contradicted`, and that an
+> injected accusation in page text changes no verdict. The denial-of-service section
+> below is the one that remains **unmitigated** rather than merely undemonstrated.
 
 ## The bug this contract exists to not have
 

@@ -4,7 +4,10 @@ Vouch is the second half of a payment guard whose first half already exists as a
 deployed-design contract:
 [MandateVault](https://github.com/Ritapossible/GenLayer-Mandate-Vault).
 
-> Specification. The pairing described here has not been implemented or tested.
+> **Vouch is built and deployed; the pairing is not yet wired.** Everything this
+> document says about Vouch's own behaviour is implemented and verified on-chain.
+> What remains specification is the sequence itself -- MandateVault calling into
+> Vouch end to end, which is Milestone 5 in [BUILD-PLAN](BUILD-PLAN.md).
 
 ## The two halves
 
