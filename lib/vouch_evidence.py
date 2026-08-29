@@ -180,21 +180,22 @@ def host_of(url: object) -> str:
 def domain_of(value: object) -> str:
     """The hostname from a `domain` claim, which may be bare or a full URL.
 
-    An earlier revision wrote `("https://" + value.lower().lstrip("htps:/"))`,
-    intending to drop a scheme if one was present. `str.lstrip` takes a *set of
-    characters*, not a prefix, so it removed every leading character that
-    happened to be in `htps:/` -- which mangled bare domains far more often
-    than it helped:
+    An earlier revision tried to drop a leading scheme by stripping the
+    characters of `https://` from the front of the value. That is not what
+    prefix removal does: the string method it used takes a *set of characters*
+    rather than a prefix, so it ate every leading character that happened to
+    appear in that set. Bare domains were mangled far more often than schemes
+    were removed:
 
         shop.com     -> op.com
         thing.io     -> ing.io
         pay.example  -> ay.example
 
-    Every one of those then failed to match its own source and the `domain`
-    claim came back `contradicted`, which is the *strongest* verdict this
-    contract can return. A parsing slip was manufacturing accusations.
+    Every one of those then failed to match its own source, and the `domain`
+    claim came back `contradicted` -- the *strongest* verdict this contract can
+    return. A parsing slip was manufacturing accusations.
 
-    This strips a scheme only when there is genuinely one to strip, and
+    This removes a scheme only when there is genuinely one to remove, and
     otherwise treats the value as a hostname.
     """
     if not isinstance(value, str):

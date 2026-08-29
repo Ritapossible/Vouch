@@ -32,7 +32,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 # README so that a stale README cannot make this pass.
 DEPLOYMENTS = {
     "studionet": {
-        "address": "0x1E3Fb6F7bA467A07CB39491534E62C3a85F62d18",
+        "address": "0xaE6737769F331c5A47Ac64603BF523aC5a6C7271",
         "rpc": "https://studio.genlayer.com/api",
         "artifact": ROOT / "contracts" / "vouch.py",
         # studio takes a bare address; bradbury wants an object. The difference
@@ -40,7 +40,7 @@ DEPLOYMENTS = {
         "params": lambda addr: [addr],
     },
     "bradbury": {
-        "address": "0x9E41184bd89432b88802d70f532Ec86C9EfAD774",
+        "address": "0xD82826C13cAbdc372a35E6CB5DB5466842470a51",
         "rpc": "https://rpc-bradbury.genlayer.com",
         "artifact": ROOT / "dist" / "vouch.min.py",
         "params": lambda addr: [{"address": addr}],
@@ -86,7 +86,7 @@ def fetch_source(rpc: str, params: list) -> str:
         result = result.get("code", "")
     if not isinstance(result, str) or not result:
         raise SystemExit(f"{rpc}: no source returned")
-    if not result.lstrip().startswith("#"):
+    if not result.strip().startswith("#"):
         result = base64.b64decode(result).decode("utf-8")
     return result
 

@@ -12,8 +12,8 @@ demonstrably exist.**
 >
 > | Network | Address | Artifact |
 > |---|---|---|
-> | Studionet | `0x1E3Fb6F7bA467A07CB39491534E62C3a85F62d18` | `contracts/vouch.py` |
-> | Testnet Bradbury | `0x9E41184bd89432b88802d70f532Ec86C9EfAD774` | `dist/vouch.min.py` |
+> | Studionet | `0xaE6737769F331c5A47Ac64603BF523aC5a6C7271` | `contracts/vouch.py` |
+> | Testnet Bradbury | `0xD82826C13cAbdc372a35E6CB5DB5466842470a51` | `dist/vouch.min.py` |
 >
 > **The deployed source matches this repository byte for byte**, on both
 > networks. `python tools/verify_deployment.py` fetches each deployment and

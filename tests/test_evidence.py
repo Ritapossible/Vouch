@@ -291,9 +291,9 @@ class TestRegressions:
 class TestDomainOf:
     """The `domain` claim's hostname parsing.
 
-    Reported by a reviewer: `lstrip("htps:/")` was intended to drop a scheme and
-    instead removed every leading character in that set, so bare domains were
-    silently mangled.
+    Reported by a reviewer. The old code tried to remove a leading scheme by
+    stripping its characters from the front, which removes a *set of
+    characters* rather than a prefix, so bare domains were silently mangled.
     """
 
     @pytest.mark.parametrize("value,expected", [
@@ -328,12 +328,22 @@ class TestDomainOf:
     def test_unusable_values_return_empty(self, value):
         assert ev.domain_of(value) == ""
 
-    def test_the_old_bug_would_have_failed_this(self):
-        """A regression stated as the comparison, so it cannot pass vacuously."""
-        for value in ("shop.com", "thing.io", "pay.example"):
-            mangled = value.strip().lower().lstrip("htps:/")
-            assert mangled != value, f"{value} was not actually mangled by lstrip"
-            assert ev.domain_of(value) == value
+    @pytest.mark.parametrize("value,old_output", [
+        ("shop.com", "op.com"),
+        ("thing.io", "ing.io"),
+        ("pay.example", "ay.example"),
+        ("stripe.com", "ripe.com"),
+    ])
+    def test_the_old_bug_would_have_failed_this(self, value, old_output):
+        """The regression, stated against what the old code actually returned.
+
+        The broken outputs are recorded here rather than recomputed, so this
+        test does not carry a copy of the defect it exists to prevent. Each
+        pair is what the character-stripping version produced against what the
+        parser returns now.
+        """
+        assert old_output != value, "the recorded output should differ from the input"
+        assert ev.domain_of(value) == value
 
     def test_a_mangled_domain_manufactured_a_contradiction(self):
         """Why this mattered rather than merely being untidy.
