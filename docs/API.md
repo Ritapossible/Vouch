@@ -73,16 +73,26 @@ safety property that should require a redeploy to move.
 
 Free, deterministic, safe to call on every keystroke.
 
-### `attestation(payee, claims) -> dict | None`
+### `attestation(payee, claims, sources) -> dict | None`
 
-The cached attestation for this exact `(payee, claims)` pair, or `None`. **Does not trigger
-a check** and never costs anything — this is the method a UI calls to show current status
-without committing to a verification.
+The cached attestation for this exact `(payee, claims, sources)` triple, or `None`. **Does
+not trigger a check** and never costs anything — this is the method a UI calls to show
+current status without committing to a verification.
 
-### `is_current(payee, claims) -> bool`
+> **`sources` is part of the identity, not a filter.** An earlier revision keyed entries by
+> `(payee, claims)` alone, which let any caller run a check against a page they controlled
+> and seed a `substantiated` entry that every later reader was served. A verdict is only as
+> good as the evidence behind it, so the evidence is half of what identifies it.
+>
+> An entry produced from one caller's chosen pages is therefore unreachable to someone
+> asking with different ones: they get `None`, and do their own check. Order and duplicates
+> are normalized, so citing the same evidence differently does not cost a second fetch.
+
+### `is_current(payee, claims, sources) -> bool`
 
 Whether a cached attestation exists and is within TTL. The cheap pre-flight before deciding
-whether a payment will be fast or slow.
+whether a payment will be fast or slow. Takes `sources` for the same reason `attestation`
+does.
 
 ### `listed(payee) -> str`
 
@@ -112,6 +122,10 @@ Attestations ever recorded.
   "sources_reachable": 1,
   "checked_at": 1756108800,
 
+  # ── provenance ────────────────────────────────────────────────────
+  "sources": ["https://vendor.example/pay"],
+  "requester": "0x…",
+
   # ── leader-observed, NOT consensus-verified ───────────────────────
   "observed": {
       "quotes": [{"claim": "legal_name", "source": "https://…", "text": "…"}],
@@ -131,6 +145,11 @@ threshold. Surfacing this is the difference between an honest UI and a misleadin
 
 **`resolved_by`** — how the whole verdict was reached. A `cache` result may be up to
 `cache_ttl` old.
+
+**`sources` and `requester`** — what the verdict rests on, and who asked for it. Both are
+recorded because a reader deciding whether to trust a `substantiated` needs to see the
+evidence it came from and who chose that evidence. A verdict whose sources you cannot
+inspect is one you are taking on the requester's word.
 
 **`observed`** — leader-observed, **not** consensus-verified. Validators fetch different
 bytes and quote different passages, so none of this is compared during consensus and none of

@@ -286,3 +286,61 @@ class TestRegressions:
         html = f"{OTHER} {third} 0x2222222222222222<b>222222222222222222222222</b>"
         fourth = "0x2222222222222222222222222222222222222222"
         assert ev.foreign_addresses(page(html), ADDR) == tuple(sorted({OTHER, third, fourth}))
+
+
+class TestDomainOf:
+    """The `domain` claim's hostname parsing.
+
+    Reported by a reviewer: `lstrip("htps:/")` was intended to drop a scheme and
+    instead removed every leading character in that set, so bare domains were
+    silently mangled.
+    """
+
+    @pytest.mark.parametrize("value,expected", [
+        # The exact cases the old code broke. `shop.com` became `op.com`.
+        ("shop.com", "shop.com"),
+        ("thing.io", "thing.io"),
+        ("pay.example", "pay.example"),
+        ("stripe.com", "stripe.com"),
+        ("post.co.uk", "post.co.uk"),
+        ("https.example", "https.example"),
+        ("ttt.com", "ttt.com"),
+    ])
+    def test_bare_domains_survive(self, value, expected):
+        assert ev.domain_of(value) == expected
+
+    @pytest.mark.parametrize("value,expected", [
+        ("https://shop.com", "shop.com"),
+        ("http://shop.com/pay", "shop.com"),
+        ("https://a.b.co.uk/x?y#z", "a.b.co.uk"),
+        ("HTTPS://Shop.COM", "shop.com"),
+        ("shop.com:8443", "shop.com"),
+        ("shop.com/pay", "shop.com"),
+        ("shop.com.", "shop.com"),
+    ])
+    def test_urls_and_authorities(self, value, expected):
+        assert ev.domain_of(value) == expected
+
+    @pytest.mark.parametrize("value", [
+        "", "   ", "x", "localhost", "not a host", "a@b.com",
+        "shop.com:not-a-port", None, 5, [], "://shop.com",
+    ])
+    def test_unusable_values_return_empty(self, value):
+        assert ev.domain_of(value) == ""
+
+    def test_the_old_bug_would_have_failed_this(self):
+        """A regression stated as the comparison, so it cannot pass vacuously."""
+        for value in ("shop.com", "thing.io", "pay.example"):
+            mangled = value.strip().lower().lstrip("htps:/")
+            assert mangled != value, f"{value} was not actually mangled by lstrip"
+            assert ev.domain_of(value) == value
+
+    def test_a_mangled_domain_manufactured_a_contradiction(self):
+        """Why this mattered rather than merely being untidy.
+
+        A `domain` claim that does not match its source is `contradicted`, the
+        strongest verdict here. Mangling the claim turned a correct claim into
+        an accusation.
+        """
+        assert ev.registrable(ev.domain_of("shop.com")) == "shop.com"
+        assert ev.registrable(ev.host_of("https://shop.com/pay")) == "shop.com"

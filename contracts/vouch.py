@@ -188,22 +188,60 @@ def canonical_claims(claims: object) -> tuple:
     return (tuple(sorted(pairs)), "")
 
 
-def cache_key(payee: str, claim_pairs: tuple) -> str:
-    """The cache key for `(payee, claims)`.
+def canonical_sources(sources: object) -> tuple:
+    """The evidence URLs, normalized and ordered, for use as cache identity.
 
-    Any change to any claim value produces a different key and forces
-    re-verification. That is what makes it safe to cache at all: a vendor
-    changing their payment address is a claims change, so the check that matters
-    most can never be served stale.
+    Sorted and de-duplicated so that citing the same evidence in a different
+    order hits the same entry, and lowercased because a host is case-insensitive
+    and a caller should not get a second cache slot for typing it differently.
+    """
+    if not isinstance(sources, (list, tuple)):
+        return ()
+    seen = set()
+    for item in sources:
+        if not isinstance(item, str):
+            continue
+        text = item.strip()
+        if text:
+            seen.add(text)
+    return tuple(sorted(seen))
+
+
+def cache_key(payee: str, claim_pairs: tuple, source_list: tuple = ()) -> str:
+    """The cache key for `(payee, claims, sources)`.
+
+    **The sources are part of the identity, and leaving them out was a
+    vulnerability.** An attestation is keyed by what was checked *and by what it
+    was checked against*; an earlier revision keyed only the first two, so any
+    caller could run a check against a page they controlled and seed a
+    `substantiated` entry that every later reader of `attestation(payee,
+    claims)` would be served. The evidence a verdict rests on is not metadata
+    about that verdict -- it is half of what the verdict means.
+
+    With the sources in the key, an entry produced from attacker-chosen pages is
+    only reachable by someone who asks with those same pages. An honest caller
+    citing the vendor's own domain gets a miss and does their own fetch, which is
+    the behaviour they were entitled to all along.
+
+    Any change to any claim value also produces a different key and forces
+    re-verification. That is what makes caching safe at all: a vendor changing
+    their payment address is a claims change, so the check that matters most can
+    never be served stale.
 
     Fields are length-prefixed rather than joined by a separator, so no
-    combination of claim values can be arranged to collide with a different set.
+    combination of claim values or URLs can be arranged to collide with a
+    different set.
     """
     h = blake2b(digest_size=16)
     parts = [payee]
     for key, value in claim_pairs:
         parts.append(key)
         parts.append(value)
+    # A marker between the claims and the sources, so a claim value cannot be
+    # arranged to look like the start of the source list.
+    parts.append("\x00sources")
+    for url in canonical_sources(source_list):
+        parts.append(url)
     for part in parts:
         raw = part.encode("utf-8")
         h.update(str(len(raw)).encode("ascii"))
@@ -639,6 +677,62 @@ def host_of(url: object) -> str:
         return rest[1:end].lower() if end != -1 else ""
     host, _, _ = rest.partition(":")
     return host.lower().rstrip(".")
+
+
+def domain_of(value: object) -> str:
+    """The hostname from a `domain` claim, which may be bare or a full URL.
+
+    An earlier revision wrote `("https://" + value.lower().lstrip("htps:/"))`,
+    intending to drop a scheme if one was present. `str.lstrip` takes a *set of
+    characters*, not a prefix, so it removed every leading character that
+    happened to be in `htps:/` -- which mangled bare domains far more often
+    than it helped:
+
+        shop.com     -> op.com
+        thing.io     -> ing.io
+        pay.example  -> ay.example
+
+    Every one of those then failed to match its own source and the `domain`
+    claim came back `contradicted`, which is the *strongest* verdict this
+    contract can return. A parsing slip was manufacturing accusations.
+
+    This strips a scheme only when there is genuinely one to strip, and
+    otherwise treats the value as a hostname.
+    """
+    if not isinstance(value, str):
+        return ""
+    text = value.strip()
+    if not text:
+        return ""
+
+    # A scheme is a prefix ending in "://", not a bag of characters.
+    marker = text.find("://")
+    if marker != -1:
+        scheme = text[:marker].lower()
+        if scheme and all(c.isalnum() or c in "+-." for c in scheme):
+            return host_of("https://" + text[marker + 3 :])
+        return ""
+
+    # Bare authority: strip anything a hostname cannot carry, then validate.
+    for sep in ("/", "?", "#"):
+        idx = text.find(sep)
+        if idx != -1:
+            text = text[:idx]
+    if "@" in text:
+        return ""
+    host, _, port = text.partition(":")
+    if port and not port.isdigit():
+        return ""
+    low = host.strip().lower().rstrip(".")
+    if not low or "." not in low:
+        return ""
+    for label in low.split("."):
+        if not label:
+            return ""
+        for ch in label:
+            if not (ch.isalnum() or ch == "-"):
+                return ""
+    return low
 
 
 def registrable(host: object) -> str:
@@ -1117,6 +1211,12 @@ class Attestation:
     checked_at: u256
     claims: DynArray[ClaimRow]
     observed: str
+    # What the verdict rested on, and who asked for it. Both are part of what
+    # the attestation *means*: a substantiation is only as good as the evidence
+    # behind it, and a reader who cannot see that evidence is trusting the
+    # caller's choice of it sight unseen.
+    sources: DynArray[str]
+    requester: str
 
 
 class Vouch(gl.Contract):
@@ -1178,15 +1278,21 @@ class Vouch(gl.Contract):
             raise gl.vm.UserError(f"{ERROR_EXPECTED} bad block time: {e}") from None
         return parse_block_time(raw)
 
-    def _key(self, payee: str, claims: dict) -> tuple:
-        """`(canonical payee, claim pairs, cache key)`, or a raise."""
+    def _key(self, payee: str, claims: dict, sources: object) -> tuple:
+        """`(canonical payee, claim pairs, canonical sources, cache key)`.
+
+        The sources are part of the key, not decoration. See `cache_key`: an
+        entry seeded from pages the caller chose must not be readable by someone
+        asking about the same payee with different evidence.
+        """
         canon = canonical_address(payee)
         if not canon:
             raise gl.vm.UserError(f"{ERROR_EXPECTED} {REASON_BAD_PAYEE}")
         pairs, err = canonical_claims(claims)
         if err:
             raise gl.vm.UserError(f"{ERROR_EXPECTED} {err}")
-        return (canon, pairs, cache_key(canon, pairs))
+        urls = canonical_sources(sources)
+        return (canon, pairs, urls, cache_key(canon, pairs, urls))
 
     def _read(self, key: str) -> dict | None:
         record = self.attestations.get(key)
@@ -1214,10 +1320,23 @@ class Vouch(gl.Contract):
             "resolved_by": str(record.resolved_by),
             "sources_reachable": int(record.sources_reachable),
             "checked_at": int(record.checked_at),
+            # The evidence this verdict rests on, and who asked for it. A reader
+            # deciding whether to trust a `substantiated` needs both: the
+            # verdict is only as good as the pages behind it.
+            "sources": [str(u) for u in record.sources],
+            "requester": str(record.requester),
             "observed": parsed,
         }
 
-    def _write(self, key: str, payee: str, canon: dict, observed: dict, now: int) -> dict:
+    def _write(
+        self,
+        key: str,
+        payee: str,
+        canon: dict,
+        observed: dict,
+        now: int,
+        sources: tuple = (),
+    ) -> dict:
         # A plain list, never `DynArray[ClaimRow]()`. The SDK converts a list
         # on assignment to a `DynArray` field; constructing one directly in
         # memory escapes as an unclassified VM fault -- `exit_code 1` with no
@@ -1247,6 +1366,8 @@ class Vouch(gl.Contract):
             checked_at=u256(int(now)),
             claims=rows,
             observed=blob,
+            sources=[str(u) for u in sources],
+            requester=gl.message.sender_address.as_hex,
         )
         if not existed:
             self.count = u256(int(self.count) + 1)
@@ -1255,6 +1376,8 @@ class Vouch(gl.Contract):
         out["payee"] = payee
         out["checked_at"] = int(now)
         out["observed"] = observed
+        out["sources"] = [str(u) for u in sources]
+        out["requester"] = gl.message.sender_address.as_hex
         return out
 
     # --- views ------------------------------------------------------------
@@ -1282,19 +1405,29 @@ class Vouch(gl.Contract):
         return str(value) if value else LIST_NONE
 
     @gl.public.view
-    def attestation(self, payee: str, claims: dict) -> dict | None:
+    def attestation(self, payee: str, claims: dict, sources: list) -> dict | None:
         """The cached attestation, or `None`. Never triggers a check.
 
         Free and side-effect free, so a UI can call it on every keystroke to
         show current status without committing to a verification.
+
+        **`sources` is required, and that is the fix for a real hole.** The
+        entry is keyed by the evidence as well as the payee and claims, so
+        asking about a payee returns only a verdict reached against the evidence
+        you named. Without it, anyone could seed a `substantiated` entry from a
+        page they controlled and have it served to every later reader.
         """
-        _, _, key = self._key(payee, claims)
+        _, _, _, key = self._key(payee, claims, sources)
         return self._read(key)
 
     @gl.public.view
-    def is_current(self, payee: str, claims: dict) -> bool:
-        """Whether a cached attestation exists and is within TTL."""
-        _, _, key = self._key(payee, claims)
+    def is_current(self, payee: str, claims: dict, sources: list) -> bool:
+        """Whether a cached attestation exists and is within TTL.
+
+        Takes `sources` for the same reason `attestation` does: the evidence is
+        part of the entry's identity.
+        """
+        _, _, _, key = self._key(payee, claims, sources)
         record = self._read(key)
         if record is None:
             return False
@@ -1345,8 +1478,28 @@ class Vouch(gl.Contract):
     def check(self, payee: str, claims: dict, sources: list) -> dict:
         """Substantiate a counterparty. Stages 0-3, cheapest first."""
         limits = self._limits()
-        canon_payee, pairs, key = self._key(payee, claims)
+        canon_payee, pairs, canon_sources, key = self._key(payee, claims, sources)
         now = self._now()
+
+        # --- stage 1: the lists, before the cache -------------------------
+        #
+        # The operator's lists are checked **first**, and the ordering is the
+        # point. An earlier revision read the cache before them, so a payee that
+        # had been substantiated and was then denylisted kept returning
+        # `substantiated` from cache until the TTL ran out. A denylist is an
+        # emergency brake -- it exists for "we now know this one is bad" -- and a
+        # brake that waits up to `cache_ttl` to engage is not one.
+        #
+        # It costs one extra storage read on the cache-hit path, which is the
+        # cheapest path there is, and buys an override that takes effect the
+        # moment it is set.
+        listing = self.listed(canon_payee)
+        if listing == LIST_DENY:
+            canon = _listed_attestation(pairs, CONTRADICTED)
+            return self._write(key, canon_payee, canon, {"listed": LIST_DENY}, now, canon_sources)
+        if listing == LIST_ALLOW:
+            canon = _listed_attestation(pairs, SUBSTANTIATED)
+            return self._write(key, canon_payee, canon, {"listed": LIST_ALLOW}, now, canon_sources)
 
         # --- stage 0: cache -----------------------------------------------
         cached = self._read(key)
@@ -1354,15 +1507,6 @@ class Vouch(gl.Contract):
             out = dict(cached)
             out["resolved_by"] = BY_CACHE
             return out
-
-        # --- stage 1: screen ----------------------------------------------
-        listing = self.listed(canon_payee)
-        if listing == LIST_DENY:
-            canon = _listed_attestation(pairs, CONTRADICTED)
-            return self._write(key, canon_payee, canon, {"listed": LIST_DENY}, now)
-        if listing == LIST_ALLOW:
-            canon = _listed_attestation(pairs, SUBSTANTIATED)
-            return self._write(key, canon_payee, canon, {"listed": LIST_ALLOW}, now)
 
         if not isinstance(sources, list) or not sources:
             raise gl.vm.UserError(f"{ERROR_EXPECTED} {REASON_NO_SOURCES}")
@@ -1441,7 +1585,7 @@ class Vouch(gl.Contract):
         observed = {}
         if isinstance(payload, dict) and isinstance(payload.get("observed"), dict):
             observed = payload["observed"]
-        return self._write(key, canon_payee, canon, observed, now)
+        return self._write(key, canon_payee, canon, observed, now, canon_sources)
 
 
 # --- nondet helpers -------------------------------------------------------
@@ -1590,9 +1734,7 @@ def _derive(gathered: list, pairs: tuple, target: str, model_pairs: tuple, min_c
             else:
                 results[key] = (UNSUBSTANTIATED, METHOD_DETERMINISTIC, 0)
         elif key == CLAIM_DOMAIN:
-            want = registrable(host_of("https://" + value.strip().lower().lstrip("htps:/")))
-            if not want:
-                want = registrable(value)
+            want = registrable(domain_of(value))
             hit = False
             mismatch = False
             for g in reachable:

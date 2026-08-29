@@ -84,12 +84,27 @@ def canonical_claims(claims: object) -> tuple:
         pairs.append((key, text))
     return (tuple(sorted(pairs)), '')
 
-def cache_key(payee: str, claim_pairs: tuple) -> str:
+def canonical_sources(sources: object) -> tuple:
+    if not isinstance(sources, (list, tuple)):
+        return ()
+    seen = set()
+    for item in sources:
+        if not isinstance(item, str):
+            continue
+        text = item.strip()
+        if text:
+            seen.add(text)
+    return tuple(sorted(seen))
+
+def cache_key(payee: str, claim_pairs: tuple, source_list: tuple=()) -> str:
     h = blake2b(digest_size=16)
     parts = [payee]
     for key, value in claim_pairs:
         parts.append(key)
         parts.append(value)
+    parts.append('\x00sources')
+    for url in canonical_sources(source_list):
+        parts.append(url)
     for part in parts:
         raw = part.encode('utf-8')
         h.update(str(len(raw)).encode('ascii'))
@@ -354,6 +369,38 @@ def host_of(url: object) -> str:
     host, _, _ = rest.partition(':')
     return host.lower().rstrip('.')
 
+def domain_of(value: object) -> str:
+    if not isinstance(value, str):
+        return ''
+    text = value.strip()
+    if not text:
+        return ''
+    marker = text.find('://')
+    if marker != -1:
+        scheme = text[:marker].lower()
+        if scheme and all((c.isalnum() or c in '+-.' for c in scheme)):
+            return host_of('https://' + text[marker + 3:])
+        return ''
+    for sep in ('/', '?', '#'):
+        idx = text.find(sep)
+        if idx != -1:
+            text = text[:idx]
+    if '@' in text:
+        return ''
+    host, _, port = text.partition(':')
+    if port and (not port.isdigit()):
+        return ''
+    low = host.strip().lower().rstrip('.')
+    if not low or '.' not in low:
+        return ''
+    for label in low.split('.'):
+        if not label:
+            return ''
+        for ch in label:
+            if not (ch.isalnum() or ch == '-'):
+                return ''
+    return low
+
 def registrable(host: object) -> str:
     if not isinstance(host, str):
         return ''
@@ -597,6 +644,8 @@ class Attestation:
     checked_at: u256
     claims: DynArray[ClaimRow]
     observed: str
+    sources: DynArray[str]
+    requester: str
 
 class Vouch(gl.Contract):
     owner: Address
@@ -632,14 +681,15 @@ class Vouch(gl.Contract):
             raise gl.vm.UserError(f'{ERROR_EXPECTED} bad block time: {e}') from None
         return parse_block_time(raw)
 
-    def _key(self, payee: str, claims: dict) -> tuple:
+    def _key(self, payee: str, claims: dict, sources: object) -> tuple:
         canon = canonical_address(payee)
         if not canon:
             raise gl.vm.UserError(f'{ERROR_EXPECTED} {REASON_BAD_PAYEE}')
         pairs, err = canonical_claims(claims)
         if err:
             raise gl.vm.UserError(f'{ERROR_EXPECTED} {err}')
-        return (canon, pairs, cache_key(canon, pairs))
+        urls = canonical_sources(sources)
+        return (canon, pairs, urls, cache_key(canon, pairs, urls))
 
     def _read(self, key: str) -> dict | None:
         record = self.attestations.get(key)
@@ -653,9 +703,9 @@ class Vouch(gl.Contract):
             parsed = json.loads(observed) if observed else {}
         except (json.JSONDecodeError, TypeError, ValueError):
             parsed = {}
-        return {'payee': str(record.payee), 'verdict': str(record.verdict), 'claims': claims, 'resolved_by': str(record.resolved_by), 'sources_reachable': int(record.sources_reachable), 'checked_at': int(record.checked_at), 'observed': parsed}
+        return {'payee': str(record.payee), 'verdict': str(record.verdict), 'claims': claims, 'resolved_by': str(record.resolved_by), 'sources_reachable': int(record.sources_reachable), 'checked_at': int(record.checked_at), 'sources': [str(u) for u in record.sources], 'requester': str(record.requester), 'observed': parsed}
 
-    def _write(self, key: str, payee: str, canon: dict, observed: dict, now: int) -> dict:
+    def _write(self, key: str, payee: str, canon: dict, observed: dict, now: int, sources: tuple=()) -> dict:
         rows = [ClaimRow(key=str(entry['key']), result=str(entry['result']), method=str(entry['method']), confidence=u256(int(entry['confidence']))) for entry in canon['claims']]
         blob = ''
         try:
@@ -663,13 +713,15 @@ class Vouch(gl.Contract):
         except (TypeError, ValueError):
             blob = ''
         existed = self.attestations.get(key) is not None
-        self.attestations[key] = Attestation(payee=payee, verdict=str(canon['verdict']), resolved_by=str(canon['resolved_by']), sources_reachable=u256(int(canon['sources_reachable'])), checked_at=u256(int(now)), claims=rows, observed=blob)
+        self.attestations[key] = Attestation(payee=payee, verdict=str(canon['verdict']), resolved_by=str(canon['resolved_by']), sources_reachable=u256(int(canon['sources_reachable'])), checked_at=u256(int(now)), claims=rows, observed=blob, sources=[str(u) for u in sources], requester=gl.message.sender_address.as_hex)
         if not existed:
             self.count = u256(int(self.count) + 1)
         out = dict(canon)
         out['payee'] = payee
         out['checked_at'] = int(now)
         out['observed'] = observed
+        out['sources'] = [str(u) for u in sources]
+        out['requester'] = gl.message.sender_address.as_hex
         return out
 
     @gl.public.view
@@ -689,13 +741,13 @@ class Vouch(gl.Contract):
         return str(value) if value else LIST_NONE
 
     @gl.public.view
-    def attestation(self, payee: str, claims: dict) -> dict | None:
-        _, _, key = self._key(payee, claims)
+    def attestation(self, payee: str, claims: dict, sources: list) -> dict | None:
+        _, _, _, key = self._key(payee, claims, sources)
         return self._read(key)
 
     @gl.public.view
-    def is_current(self, payee: str, claims: dict) -> bool:
-        _, _, key = self._key(payee, claims)
+    def is_current(self, payee: str, claims: dict, sources: list) -> bool:
+        _, _, _, key = self._key(payee, claims, sources)
         record = self._read(key)
         if record is None:
             return False
@@ -741,20 +793,20 @@ class Vouch(gl.Contract):
     @gl.public.write
     def check(self, payee: str, claims: dict, sources: list) -> dict:
         limits = self._limits()
-        canon_payee, pairs, key = self._key(payee, claims)
+        canon_payee, pairs, canon_sources, key = self._key(payee, claims, sources)
         now = self._now()
+        listing = self.listed(canon_payee)
+        if listing == LIST_DENY:
+            canon = _listed_attestation(pairs, CONTRADICTED)
+            return self._write(key, canon_payee, canon, {'listed': LIST_DENY}, now, canon_sources)
+        if listing == LIST_ALLOW:
+            canon = _listed_attestation(pairs, SUBSTANTIATED)
+            return self._write(key, canon_payee, canon, {'listed': LIST_ALLOW}, now, canon_sources)
         cached = self._read(key)
         if cached is not None and (not self._stale(cached)):
             out = dict(cached)
             out['resolved_by'] = BY_CACHE
             return out
-        listing = self.listed(canon_payee)
-        if listing == LIST_DENY:
-            canon = _listed_attestation(pairs, CONTRADICTED)
-            return self._write(key, canon_payee, canon, {'listed': LIST_DENY}, now)
-        if listing == LIST_ALLOW:
-            canon = _listed_attestation(pairs, SUBSTANTIATED)
-            return self._write(key, canon_payee, canon, {'listed': LIST_ALLOW}, now)
         if not isinstance(sources, list) or not sources:
             raise gl.vm.UserError(f'{ERROR_EXPECTED} {REASON_NO_SOURCES}')
         if len(sources) > limits.max_sources:
@@ -803,7 +855,7 @@ class Vouch(gl.Contract):
         observed = {}
         if isinstance(payload, dict) and isinstance(payload.get('observed'), dict):
             observed = payload['observed']
-        return self._write(key, canon_payee, canon, observed, now)
+        return self._write(key, canon_payee, canon, observed, now, canon_sources)
 
 def _leader_payload(leader_res: object) -> dict | None:
     if not isinstance(leader_res, gl.vm.Return):
@@ -869,9 +921,7 @@ def _derive(gathered: list, pairs: tuple, target: str, model_pairs: tuple, min_c
             else:
                 results[key] = (UNSUBSTANTIATED, METHOD_DETERMINISTIC, 0)
         elif key == CLAIM_DOMAIN:
-            want = registrable(host_of('https://' + value.strip().lower().lstrip('htps:/')))
-            if not want:
-                want = registrable(value)
+            want = registrable(domain_of(value))
             hit = False
             mismatch = False
             for g in reachable:

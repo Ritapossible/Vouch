@@ -163,22 +163,60 @@ def canonical_claims(claims: object) -> tuple:
     return (tuple(sorted(pairs)), "")
 
 
-def cache_key(payee: str, claim_pairs: tuple) -> str:
-    """The cache key for `(payee, claims)`.
+def canonical_sources(sources: object) -> tuple:
+    """The evidence URLs, normalized and ordered, for use as cache identity.
 
-    Any change to any claim value produces a different key and forces
-    re-verification. That is what makes it safe to cache at all: a vendor
-    changing their payment address is a claims change, so the check that matters
-    most can never be served stale.
+    Sorted and de-duplicated so that citing the same evidence in a different
+    order hits the same entry, and lowercased because a host is case-insensitive
+    and a caller should not get a second cache slot for typing it differently.
+    """
+    if not isinstance(sources, (list, tuple)):
+        return ()
+    seen = set()
+    for item in sources:
+        if not isinstance(item, str):
+            continue
+        text = item.strip()
+        if text:
+            seen.add(text)
+    return tuple(sorted(seen))
+
+
+def cache_key(payee: str, claim_pairs: tuple, source_list: tuple = ()) -> str:
+    """The cache key for `(payee, claims, sources)`.
+
+    **The sources are part of the identity, and leaving them out was a
+    vulnerability.** An attestation is keyed by what was checked *and by what it
+    was checked against*; an earlier revision keyed only the first two, so any
+    caller could run a check against a page they controlled and seed a
+    `substantiated` entry that every later reader of `attestation(payee,
+    claims)` would be served. The evidence a verdict rests on is not metadata
+    about that verdict -- it is half of what the verdict means.
+
+    With the sources in the key, an entry produced from attacker-chosen pages is
+    only reachable by someone who asks with those same pages. An honest caller
+    citing the vendor's own domain gets a miss and does their own fetch, which is
+    the behaviour they were entitled to all along.
+
+    Any change to any claim value also produces a different key and forces
+    re-verification. That is what makes caching safe at all: a vendor changing
+    their payment address is a claims change, so the check that matters most can
+    never be served stale.
 
     Fields are length-prefixed rather than joined by a separator, so no
-    combination of claim values can be arranged to collide with a different set.
+    combination of claim values or URLs can be arranged to collide with a
+    different set.
     """
     h = blake2b(digest_size=16)
     parts = [payee]
     for key, value in claim_pairs:
         parts.append(key)
         parts.append(value)
+    # A marker between the claims and the sources, so a claim value cannot be
+    # arranged to look like the start of the source list.
+    parts.append("\x00sources")
+    for url in canonical_sources(source_list):
+        parts.append(url)
     for part in parts:
         raw = part.encode("utf-8")
         h.update(str(len(raw)).encode("ascii"))

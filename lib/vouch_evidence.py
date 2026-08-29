@@ -177,6 +177,62 @@ def host_of(url: object) -> str:
     return host.lower().rstrip(".")
 
 
+def domain_of(value: object) -> str:
+    """The hostname from a `domain` claim, which may be bare or a full URL.
+
+    An earlier revision wrote `("https://" + value.lower().lstrip("htps:/"))`,
+    intending to drop a scheme if one was present. `str.lstrip` takes a *set of
+    characters*, not a prefix, so it removed every leading character that
+    happened to be in `htps:/` -- which mangled bare domains far more often
+    than it helped:
+
+        shop.com     -> op.com
+        thing.io     -> ing.io
+        pay.example  -> ay.example
+
+    Every one of those then failed to match its own source and the `domain`
+    claim came back `contradicted`, which is the *strongest* verdict this
+    contract can return. A parsing slip was manufacturing accusations.
+
+    This strips a scheme only when there is genuinely one to strip, and
+    otherwise treats the value as a hostname.
+    """
+    if not isinstance(value, str):
+        return ""
+    text = value.strip()
+    if not text:
+        return ""
+
+    # A scheme is a prefix ending in "://", not a bag of characters.
+    marker = text.find("://")
+    if marker != -1:
+        scheme = text[:marker].lower()
+        if scheme and all(c.isalnum() or c in "+-." for c in scheme):
+            return host_of("https://" + text[marker + 3 :])
+        return ""
+
+    # Bare authority: strip anything a hostname cannot carry, then validate.
+    for sep in ("/", "?", "#"):
+        idx = text.find(sep)
+        if idx != -1:
+            text = text[:idx]
+    if "@" in text:
+        return ""
+    host, _, port = text.partition(":")
+    if port and not port.isdigit():
+        return ""
+    low = host.strip().lower().rstrip(".")
+    if not low or "." not in low:
+        return ""
+    for label in low.split("."):
+        if not label:
+            return ""
+        for ch in label:
+            if not (ch.isalnum() or ch == "-"):
+                return ""
+    return low
+
+
 def registrable(host: object) -> str:
     """A coarse registrable-domain approximation: the last two labels.
 

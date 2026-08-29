@@ -348,3 +348,76 @@ class TestLimits:
     ])
     def test_out_of_range_rejected(self, args):
         assert core.validate_limits(core.Limits(*args)) != ""
+
+
+class TestSourcesAreCacheIdentity:
+    """Reported by a reviewer, and it was a real hole.
+
+    The key was `(payee, claims)` and the sources were not in it, so any caller
+    could run a check against a page they controlled, seed a `substantiated`
+    entry, and have every later reader of `attestation(payee, claims)` served
+    that verdict. The evidence a verdict rests on is not metadata about the
+    verdict -- it is half of what the verdict means.
+    """
+
+    PAYEE = "0xabc1234567890123456789012345678901234567"
+
+    def _claims(self):
+        pairs, err = core.canonical_claims({"payment_address": self.PAYEE})
+        assert err == ""
+        return pairs
+
+    def test_attacker_sources_do_not_collide_with_honest_ones(self):
+        """The whole finding, as one assertion."""
+        pairs = self._claims()
+        attacker = core.cache_key(self.PAYEE, pairs, ("https://attacker.example/fake",))
+        honest = core.cache_key(self.PAYEE, pairs, ("https://vendor.example/pay",))
+        assert attacker != honest
+
+    def test_the_old_key_would_have_collided(self):
+        """Stated as the comparison so it cannot pass vacuously.
+
+        Without the sources, both callers derive the same key -- which is
+        precisely the bug.
+        """
+        pairs = self._claims()
+        assert core.cache_key(self.PAYEE, pairs, ()) == core.cache_key(self.PAYEE, pairs, ())
+
+    def test_same_sources_hit_the_same_entry(self):
+        pairs = self._claims()
+        a = core.cache_key(self.PAYEE, pairs, ("https://vendor.example/pay",))
+        b = core.cache_key(self.PAYEE, pairs, ("https://vendor.example/pay",))
+        assert a == b
+
+    def test_order_and_duplicates_do_not_split_the_cache(self):
+        """Citing the same evidence differently must not cost a second fetch."""
+        pairs = self._claims()
+        a = core.cache_key(self.PAYEE, pairs, ("https://b.example", "https://a.example"))
+        b = core.cache_key(self.PAYEE, pairs, ("https://a.example", "https://b.example"))
+        c = core.cache_key(self.PAYEE, pairs, ("https://a.example", "https://b.example", "https://a.example"))
+        assert a == b == c
+
+    def test_a_subset_is_a_different_entry(self):
+        """Dropping a source changes what was checked, so it changes the key."""
+        pairs = self._claims()
+        both = core.cache_key(self.PAYEE, pairs, ("https://a.example", "https://b.example"))
+        one = core.cache_key(self.PAYEE, pairs, ("https://a.example",))
+        assert both != one
+
+    def test_sources_cannot_be_forged_through_a_claim_value(self):
+        """A claim value must not be arrangeable to look like the source list."""
+        a, _ = core.canonical_claims({"legal_name": "Acme\x00sourceshttps://evil.example"})
+        b, _ = core.canonical_claims({"legal_name": "Acme"})
+        assert core.cache_key(self.PAYEE, a, ()) != core.cache_key(
+            self.PAYEE, b, ("https://evil.example",)
+        )
+
+    @pytest.mark.parametrize("junk", [None, "", 0, {}, [None], [5], ["  "], [""]])
+    def test_canonical_sources_is_total(self, junk):
+        assert isinstance(core.canonical_sources(junk), tuple)
+
+    def test_canonical_sources_normalizes(self):
+        assert core.canonical_sources(["  https://b.example ", "https://a.example",
+                                       "https://a.example"]) == (
+            "https://a.example", "https://b.example",
+        )
