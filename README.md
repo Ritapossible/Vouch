@@ -12,8 +12,15 @@ demonstrably exist.**
 >
 > | Network | Address | Artifact |
 > |---|---|---|
-> | Studionet | `0x42AA00A139652737285d70f3a4Fda32b478eac98` | `contracts/vouch.py` |
-> | Testnet Bradbury | `0x91d27530546ABa4886cA9A93D80DB4C8B16EB156` | `dist/vouch.min.py` |
+> | Studionet | `0xDa55E7b7d1d694e074EEf3BEf2477826835c6A39` | `contracts/vouch.py` |
+> | Testnet Bradbury | `0x6669784D8e86F220F05A3313DaD6c273fba20898` | `dist/vouch.min.py` |
+>
+> **The deployed source matches this repository byte for byte**, on both
+> networks. `python tools/verify_deployment.py` fetches each deployment and
+> compares SHA-256 against the artifact here, because that drift is invisible to
+> every local check: an earlier pair of addresses ran `wait_after_loaded="1000ms"`
+> while the repository said `RENDER_WAIT = "0ms"`, and both sides passed their
+> own tests in that state.
 >
 > All three demo cases are confirmed live on **both** networks, each transaction
 > finalized. On studionet every claim type and every resolution path has run and
@@ -345,6 +352,7 @@ tools/
   build_contract.py     regenerates contracts/vouch.py from lib/
   build_min.py          regenerates dist/vouch.min.py from the contract
   verify.py             proves one contract, lint-clean; writes evidence/
+  verify_deployment.py  proves each deployment holds exactly the source here
   deploy.mjs            deploys to studionet or bradbury, with the testnet gas shim
 tests/
   test_vouch_core.py    the decision engine, and the fail-open invariant
@@ -364,11 +372,10 @@ docs/
   RUNTIME-FACTS, BUILD-PLAN
 ```
 
-`verify_deployment.py` from the predecessor repositories is **not** ported here.
-Studionet's explorer serves the deployed source directly, and the contract's
-SHA-256 is recorded in `evidence/validation.json` for a byte-for-byte comparison
-against it, which answers the same question without a second tool to keep
-working.
+`verify_deployment.py` is the one tool here that can catch a class of problem
+nothing else can. Every other check reads the repository; this one reads the
+chain and compares. A contract can be lint-clean, fully tested and deployed, and
+still not be the contract you are looking at.
 
 **GenLayer deploys exactly one file.** `genlayer deploy --contract` reads a single path and
 does no module bundling, so a local `import vouch_core` resolves on a dev box and fails
