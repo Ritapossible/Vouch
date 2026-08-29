@@ -35,6 +35,14 @@ REASON_NOT_OWNER = "NOT_OWNER"
 REASON_BAD_PAYEE = "BAD_PAYEE"
 REASON_BAD_CLAIMS = "BAD_CLAIMS"
 REASON_DENIED = "DENIED"
+REASON_TOO_MANY_DOMAINS = "TOO_MANY_APPROVED_DOMAINS"
+REASON_BAD_DOMAIN = "BAD_APPROVED_DOMAIN"
+REASON_SOURCE_NOT_APPROVED = "SOURCE_NOT_APPROVED"
+
+# A payee's approved-evidence policy is a short list by design. It names the
+# places that speak for a counterparty, and a list long enough to need paging is
+# not a policy any more.
+MAX_APPROVED_DOMAINS = 16
 
 # --- the three values -----------------------------------------------------
 #

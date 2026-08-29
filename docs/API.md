@@ -55,6 +55,29 @@ misspells `legal_name` should find out, not receive a verdict that quietly omitt
 Returns the attestation described under [Attestation shape](#attestation-shape). Raises on
 malformed input, zero sources, more than `max_sources`, or a URL failing validation.
 
+### `set_approved_sources(payee, domains) -> dict`
+
+Owner-only. Binds the evidence domains a payee may be substantiated against. Passing an
+empty list clears the policy.
+
+Sources are already part of the cache key, so a verdict reached against one caller's pages
+cannot be served to somebody citing different ones. That closes the *reuse*. This closes the
+other half: where a policy is set, every source must sit under one of these registrable
+domains or the check is refused **before any fetch**, so an arbitrary caller cannot
+substantiate a pinned payee against a page of their own even for their own reading.
+
+**Open by default, deliberately.** A payee with no policy behaves as before. Requiring one
+would make the contract useless for the case it exists for — an agent meeting a supplier it
+found four seconds ago, where nobody has pre-approved anything. The policy is for payees
+worth pinning down.
+
+Matching is on the registrable domain, so `shop.com` covers `pay.shop.com` and does not
+cover `shop.com.evil.example`.
+
+### `approved_sources(payee) -> list`
+
+The domains a payee may be substantiated against. Empty means no policy is set.
+
 ### `set_denylist(payee, value) -> None` / `set_allowlist(payee, value) -> None`
 
 Owner-only. The two lists that short-circuit stage 1.
@@ -167,6 +190,9 @@ segregated because an audit aid presented as a guarantee is a liability. See
 | `TOO_MANY_SOURCES` | Above `max_sources`. |
 | `BAD_URL` | Not https, carries userinfo, or otherwise fails validation. |
 | `NOT_OWNER` | List mutation attempted by a non-owner. |
+| `SOURCE_NOT_APPROVED` | A source outside the payee's approved-evidence policy. |
+| `BAD_APPROVED_DOMAIN` | A domain that is not parseable as a hostname. |
+| `TOO_MANY_APPROVED_DOMAINS` | Above `MAX_APPROVED_DOMAINS` (16). |
 
 All raised at stage 1 or earlier, before any network or model cost.
 

@@ -32,7 +32,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 # README so that a stale README cannot make this pass.
 DEPLOYMENTS = {
     "studionet": {
-        "address": "0xDa55E7b7d1d694e074EEf3BEf2477826835c6A39",
+        "address": "0x1E3Fb6F7bA467A07CB39491534E62C3a85F62d18",
         "rpc": "https://studio.genlayer.com/api",
         "artifact": ROOT / "contracts" / "vouch.py",
         # studio takes a bare address; bradbury wants an object. The difference
@@ -40,7 +40,7 @@ DEPLOYMENTS = {
         "params": lambda addr: [addr],
     },
     "bradbury": {
-        "address": "0x6669784D8e86F220F05A3313DaD6c273fba20898",
+        "address": "0x9E41184bd89432b88802d70f532Ec86C9EfAD774",
         "rpc": "https://rpc-bradbury.genlayer.com",
         "artifact": ROOT / "dist" / "vouch.min.py",
         "params": lambda addr: [{"address": addr}],

@@ -60,6 +60,14 @@ REASON_NOT_OWNER = "NOT_OWNER"
 REASON_BAD_PAYEE = "BAD_PAYEE"
 REASON_BAD_CLAIMS = "BAD_CLAIMS"
 REASON_DENIED = "DENIED"
+REASON_TOO_MANY_DOMAINS = "TOO_MANY_APPROVED_DOMAINS"
+REASON_BAD_DOMAIN = "BAD_APPROVED_DOMAIN"
+REASON_SOURCE_NOT_APPROVED = "SOURCE_NOT_APPROVED"
+
+# A payee's approved-evidence policy is a short list by design. It names the
+# places that speak for a counterparty, and a list long enough to need paging is
+# not a policy any more.
+MAX_APPROVED_DOMAINS = 16
 
 # --- the three values -----------------------------------------------------
 #
@@ -1231,6 +1239,10 @@ class Vouch(gl.Contract):
     count: u256
     attestations: TreeMap[str, Attestation]
     listing: TreeMap[str, str]
+    # Approved evidence domains, per payee, space separated. Empty or absent
+    # means "no policy set for this payee", which is open by default -- see
+    # `set_approved_sources`.
+    approved: TreeMap[str, str]
 
     def __init__(
         self,
@@ -1397,6 +1409,18 @@ class Vouch(gl.Contract):
         }
 
     @gl.public.view
+    def approved_sources(self, payee: str) -> list:
+        """The evidence domains this payee may be substantiated against.
+
+        Empty means no policy is set, and any source is accepted.
+        """
+        canon = canonical_address(payee)
+        if not canon:
+            return []
+        raw = self.approved.get(canon)
+        return str(raw).split() if raw else []
+
+    @gl.public.view
     def listed(self, payee: str) -> str:
         canon = canonical_address(payee)
         if not canon:
@@ -1448,6 +1472,51 @@ class Vouch(gl.Contract):
     def _require_owner(self) -> None:
         if gl.message.sender_address != self.owner:
             raise gl.vm.UserError(f"{ERROR_EXPECTED} {REASON_NOT_OWNER}")
+
+    @gl.public.write
+    def set_approved_sources(self, payee: str, domains: list) -> dict:
+        """Bind the evidence a payee may be substantiated against. Owner only.
+
+        Sources are already part of the cache key, so a verdict reached against
+        one caller's chosen pages cannot be served to somebody citing different
+        ones. That closes the *reuse*, and it leaves the other half open: any
+        caller may still run a check for any payee against any page, and read
+        back their own `substantiated`.
+
+        This is the other half. Where a policy is set, every source must sit
+        under one of these registrable domains or the check is refused outright,
+        before a single fetch. Evidence about a counterparty then comes only from
+        places the operator has accepted as speaking for that counterparty.
+
+        **Open by default, and that is deliberate.** A payee with no policy
+        behaves as before, because requiring one would make the contract useless
+        for the case it was built for -- an agent meeting a supplier it found
+        four seconds ago, where nobody has pre-approved anything. The policy is
+        for payees that matter enough to pin down, and the two mechanisms answer
+        different halves of the same question: the cache key stops a verdict
+        travelling, the policy stops it being manufactured.
+
+        Passing an empty list clears the policy.
+        """
+        self._require_owner()
+        canon = canonical_address(payee)
+        if not canon:
+            raise gl.vm.UserError(f"{ERROR_EXPECTED} {REASON_BAD_PAYEE}")
+        if not isinstance(domains, list):
+            raise gl.vm.UserError(f"{ERROR_EXPECTED} domains must be a list")
+        if len(domains) > MAX_APPROVED_DOMAINS:
+            raise gl.vm.UserError(f"{ERROR_EXPECTED} {REASON_TOO_MANY_DOMAINS}")
+
+        cleaned = []
+        for item in domains:
+            host = registrable(domain_of(item))
+            if not host:
+                raise gl.vm.UserError(f"{ERROR_EXPECTED} {REASON_BAD_DOMAIN}: {item}")
+            if host not in cleaned:
+                cleaned.append(host)
+        cleaned.sort()
+        self.approved[canon] = " ".join(cleaned)
+        return {"payee": canon, "approved": cleaned}
 
     @gl.public.write
     def set_denylist(self, payee: str, value: bool) -> dict:
@@ -1518,6 +1587,22 @@ class Vouch(gl.Contract):
             if reason:
                 raise gl.vm.UserError(f"{ERROR_EXPECTED} {REASON_BAD_URL}: {reason}")
             urls.append(str(raw).strip())
+
+        # The payee's evidence policy, enforced before a single fetch. Where one
+        # is set, evidence about this counterparty may come only from domains
+        # the operator accepted as speaking for it -- so an arbitrary caller
+        # cannot substantiate a pinned payee against a page of their own, even
+        # for their own reading. Where none is set, any source is accepted and
+        # the cache key alone stops the verdict travelling.
+        policy = self.approved_sources(canon_payee)
+        if policy:
+            allowed = set(policy)
+            for url in urls:
+                host = registrable(host_of(url))
+                if host not in allowed:
+                    raise gl.vm.UserError(
+                        f"{ERROR_EXPECTED} {REASON_SOURCE_NOT_APPROVED}: {host}"
+                    )
 
         # The address the deterministic check looks for: the `payment_address`
         # claim if the caller made one, otherwise the payee itself. A caller who

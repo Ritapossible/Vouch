@@ -154,8 +154,10 @@ class TestCompactArtifact:
         canonical = mod.public_surface(CONTRACT.read_text(encoding="utf-8"))
         compact = mod.public_surface(self.MIN.read_text(encoding="utf-8"))
         assert canonical == compact
-        # The eight in docs/API.md: five views and three writes.
-        assert len(canonical) == 8
+        # The ten in docs/API.md: six views and four writes. `owed`-style
+        # growth is expected; a *shrink* here would mean the compact artifact
+        # lost a method, which is what this comparison is for.
+        assert len(canonical) == 10
 
     def test_pins_the_same_runner(self):
         assert (

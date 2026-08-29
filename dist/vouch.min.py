@@ -17,6 +17,10 @@ REASON_NOT_OWNER = 'NOT_OWNER'
 REASON_BAD_PAYEE = 'BAD_PAYEE'
 REASON_BAD_CLAIMS = 'BAD_CLAIMS'
 REASON_DENIED = 'DENIED'
+REASON_TOO_MANY_DOMAINS = 'TOO_MANY_APPROVED_DOMAINS'
+REASON_BAD_DOMAIN = 'BAD_APPROVED_DOMAIN'
+REASON_SOURCE_NOT_APPROVED = 'SOURCE_NOT_APPROVED'
+MAX_APPROVED_DOMAINS = 16
 SUBSTANTIATED = 'substantiated'
 UNSUBSTANTIATED = 'unsubstantiated'
 CONTRADICTED = 'contradicted'
@@ -657,6 +661,7 @@ class Vouch(gl.Contract):
     count: u256
     attestations: TreeMap[str, Attestation]
     listing: TreeMap[str, str]
+    approved: TreeMap[str, str]
 
     def __init__(self, max_sources: int=3, max_source_bytes: int=200000, min_confidence: int=75, confidence_tol: int=15, cache_ttl: int=86400):
         limits = Limits(max_sources, max_source_bytes, min_confidence, confidence_tol, cache_ttl)
@@ -733,6 +738,14 @@ class Vouch(gl.Contract):
         return {'max_sources': int(self.max_sources), 'max_source_bytes': int(self.max_source_bytes), 'min_confidence': int(self.min_confidence), 'confidence_tol': int(self.confidence_tol), 'cache_ttl': int(self.cache_ttl)}
 
     @gl.public.view
+    def approved_sources(self, payee: str) -> list:
+        canon = canonical_address(payee)
+        if not canon:
+            return []
+        raw = self.approved.get(canon)
+        return str(raw).split() if raw else []
+
+    @gl.public.view
     def listed(self, payee: str) -> str:
         canon = canonical_address(payee)
         if not canon:
@@ -766,6 +779,27 @@ class Vouch(gl.Contract):
     def _require_owner(self) -> None:
         if gl.message.sender_address != self.owner:
             raise gl.vm.UserError(f'{ERROR_EXPECTED} {REASON_NOT_OWNER}')
+
+    @gl.public.write
+    def set_approved_sources(self, payee: str, domains: list) -> dict:
+        self._require_owner()
+        canon = canonical_address(payee)
+        if not canon:
+            raise gl.vm.UserError(f'{ERROR_EXPECTED} {REASON_BAD_PAYEE}')
+        if not isinstance(domains, list):
+            raise gl.vm.UserError(f'{ERROR_EXPECTED} domains must be a list')
+        if len(domains) > MAX_APPROVED_DOMAINS:
+            raise gl.vm.UserError(f'{ERROR_EXPECTED} {REASON_TOO_MANY_DOMAINS}')
+        cleaned = []
+        for item in domains:
+            host = registrable(domain_of(item))
+            if not host:
+                raise gl.vm.UserError(f'{ERROR_EXPECTED} {REASON_BAD_DOMAIN}: {item}')
+            if host not in cleaned:
+                cleaned.append(host)
+        cleaned.sort()
+        self.approved[canon] = ' '.join(cleaned)
+        return {'payee': canon, 'approved': cleaned}
 
     @gl.public.write
     def set_denylist(self, payee: str, value: bool) -> dict:
@@ -817,6 +851,13 @@ class Vouch(gl.Contract):
             if reason:
                 raise gl.vm.UserError(f'{ERROR_EXPECTED} {REASON_BAD_URL}: {reason}')
             urls.append(str(raw).strip())
+        policy = self.approved_sources(canon_payee)
+        if policy:
+            allowed = set(policy)
+            for url in urls:
+                host = registrable(host_of(url))
+                if host not in allowed:
+                    raise gl.vm.UserError(f'{ERROR_EXPECTED} {REASON_SOURCE_NOT_APPROVED}: {host}')
         target = canon_payee
         for ckey, cvalue in pairs:
             if ckey == CLAIM_PAYMENT_ADDRESS:

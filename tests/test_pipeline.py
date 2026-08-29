@@ -296,3 +296,38 @@ class TestLeaderPayloadUnwrapping:
     @pytest.mark.parametrize("inner", ["not json", "", "[]", "null", "123"])
     def test_a_return_carrying_junk_is_rejected(self, inner):
         assert V._leader_payload(V.gl.vm.Return(inner)) is None
+
+
+class TestApprovedSourcePolicy:
+    """Binding approved evidence to the counterparty.
+
+    The cache key stops a verdict *travelling* to a caller who cited different
+    evidence. It does not stop an arbitrary caller manufacturing one for their
+    own reading. This is the other half: where an operator has pinned a payee's
+    evidence domains, a check against anything else is refused before a fetch.
+    """
+
+    def test_registrable_matching_is_what_the_policy_compares(self):
+        """A subdomain of an approved domain is approved; a lookalike is not."""
+        assert V.registrable(V.host_of('https://pay.shop.com/x')) == 'shop.com'
+        assert V.registrable(V.host_of('https://shop.com.evil.example/x')) != 'shop.com'
+        assert V.registrable(V.host_of('https://shopcom.example/x')) != 'shop.com'
+
+    def test_a_policy_domain_survives_normalization(self):
+        """The bug that started this: a bare domain must reach the policy intact."""
+        for value in ('shop.com', 'thing.io', 'pay.example'):
+            assert V.registrable(V.domain_of(value)) == value
+
+    def test_url_and_bare_forms_agree(self):
+        """An operator may pin `shop.com` and a caller cite `https://shop.com/pay`."""
+        pinned = V.registrable(V.domain_of('shop.com'))
+        cited = V.registrable(V.host_of('https://shop.com/pay'))
+        assert pinned == cited == 'shop.com'
+
+    def test_the_reason_code_exists_and_is_classified(self):
+        """A refused source is the caller's problem, so it carries [EXPECTED]."""
+        assert V.REASON_SOURCE_NOT_APPROVED
+        assert V.ERROR_EXPECTED == '[EXPECTED]'
+
+    def test_policy_is_bounded(self):
+        assert V.MAX_APPROVED_DOMAINS >= 1
