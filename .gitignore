@@ -1,5 +1,7 @@
 __pycache__/
 *.pyc
 .pytest_cache/
-evidence/
+# `evidence/validation.json` is committed: it is the linter and schema record a
+# reviewer reads, and the README lists the directory. Regenerate with
+# `python tools/verify.py`.
 .venv/

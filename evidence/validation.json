@@ -1,0 +1,292 @@
+{
+  "contract": "contracts/vouch.py",
+  "contract_sha256": "4d9b20d962d85bbf63df881118fc80f843a41b244e388f9437ab85dad77a9b71",
+  "contract_bytes": 74748,
+  "compact_artifact": null,
+  "git_head_at_verification": "0e8d7a0b533c78197a6a356a4eb54272670f99fd",
+  "linter": "genvm-linter 0.11.0",
+  "sources": [
+    {
+      "path": "contracts/vouch.py",
+      "role": "contract",
+      "declares_contract_class": true
+    },
+    {
+      "path": "lib/vouch_core.py",
+      "role": "build input / tooling / test",
+      "declares_contract_class": false
+    },
+    {
+      "path": "lib/vouch_evidence.py",
+      "role": "build input / tooling / test",
+      "declares_contract_class": false
+    },
+    {
+      "path": "lib/vouch_prompts.py",
+      "role": "build input / tooling / test",
+      "declares_contract_class": false
+    },
+    {
+      "path": "tests/conftest.py",
+      "role": "build input / tooling / test",
+      "declares_contract_class": false
+    },
+    {
+      "path": "tests/stubs/_genlayer_wasi.py",
+      "role": "build input / tooling / test",
+      "declares_contract_class": false
+    },
+    {
+      "path": "tests/test_contract_sync.py",
+      "role": "build input / tooling / test",
+      "declares_contract_class": false
+    },
+    {
+      "path": "tests/test_evidence.py",
+      "role": "build input / tooling / test",
+      "declares_contract_class": false
+    },
+    {
+      "path": "tests/test_model_stage.py",
+      "role": "build input / tooling / test",
+      "declares_contract_class": false
+    },
+    {
+      "path": "tests/test_pipeline.py",
+      "role": "build input / tooling / test",
+      "declares_contract_class": false
+    },
+    {
+      "path": "tests/test_vouch_core.py",
+      "role": "build input / tooling / test",
+      "declares_contract_class": false
+    },
+    {
+      "path": "tests/vouch_testkit.py",
+      "role": "build input / tooling / test",
+      "declares_contract_class": false
+    },
+    {
+      "path": "tools/build_contract.py",
+      "role": "build input / tooling / test",
+      "declares_contract_class": false
+    },
+    {
+      "path": "tools/build_min.py",
+      "role": "build input / tooling / test",
+      "declares_contract_class": false
+    },
+    {
+      "path": "tools/verify.py",
+      "role": "build input / tooling / test",
+      "declares_contract_class": false
+    },
+    {
+      "path": "tools/verify_deployment.py",
+      "role": "build input / tooling / test",
+      "declares_contract_class": false
+    }
+  ],
+  "validation": [
+    {
+      "command": "genvm-lint check contracts/vouch.py --json",
+      "exit_code": 0,
+      "result": {
+        "ok": true,
+        "lint": {
+          "ok": true,
+          "passed": 3
+        },
+        "validate": {
+          "ok": true,
+          "contract": "Vouch",
+          "methods": 10,
+          "view_methods": 6,
+          "write_methods": 4,
+          "ctor_params": 5
+        }
+      }
+    },
+    {
+      "command": "genvm-lint schema contracts/vouch.py --json",
+      "exit_code": 0,
+      "result": {
+        "ok": true,
+        "schema": {
+          "ctor": {
+            "params": [
+              [
+                "max_sources",
+                "int"
+              ],
+              [
+                "max_source_bytes",
+                "int"
+              ],
+              [
+                "min_confidence",
+                "int"
+              ],
+              [
+                "confidence_tol",
+                "int"
+              ],
+              [
+                "cache_ttl",
+                "int"
+              ]
+            ],
+            "kwparams": {}
+          },
+          "methods": {
+            "approved_sources": {
+              "params": [
+                [
+                  "payee",
+                  "string"
+                ]
+              ],
+              "kwparams": {},
+              "readonly": true,
+              "ret": "array"
+            },
+            "attestation": {
+              "params": [
+                [
+                  "payee",
+                  "string"
+                ],
+                [
+                  "claims",
+                  "dict"
+                ],
+                [
+                  "sources",
+                  "array"
+                ]
+              ],
+              "kwparams": {},
+              "readonly": true,
+              "ret": {
+                "$or": [
+                  "dict",
+                  "null"
+                ]
+              }
+            },
+            "check": {
+              "params": [
+                [
+                  "payee",
+                  "string"
+                ],
+                [
+                  "claims",
+                  "dict"
+                ],
+                [
+                  "sources",
+                  "array"
+                ]
+              ],
+              "kwparams": {},
+              "readonly": false,
+              "ret": "dict",
+              "payable": false
+            },
+            "is_current": {
+              "params": [
+                [
+                  "payee",
+                  "string"
+                ],
+                [
+                  "claims",
+                  "dict"
+                ],
+                [
+                  "sources",
+                  "array"
+                ]
+              ],
+              "kwparams": {},
+              "readonly": true,
+              "ret": "bool"
+            },
+            "limits": {
+              "params": [],
+              "kwparams": {},
+              "readonly": true,
+              "ret": "dict"
+            },
+            "listed": {
+              "params": [
+                [
+                  "payee",
+                  "string"
+                ]
+              ],
+              "kwparams": {},
+              "readonly": true,
+              "ret": "string"
+            },
+            "set_allowlist": {
+              "params": [
+                [
+                  "payee",
+                  "string"
+                ],
+                [
+                  "value",
+                  "bool"
+                ]
+              ],
+              "kwparams": {},
+              "readonly": false,
+              "ret": "dict",
+              "payable": false
+            },
+            "set_approved_sources": {
+              "params": [
+                [
+                  "payee",
+                  "string"
+                ],
+                [
+                  "domains",
+                  "array"
+                ]
+              ],
+              "kwparams": {},
+              "readonly": false,
+              "ret": "dict",
+              "payable": false
+            },
+            "set_denylist": {
+              "params": [
+                [
+                  "payee",
+                  "string"
+                ],
+                [
+                  "value",
+                  "bool"
+                ]
+              ],
+              "kwparams": {},
+              "readonly": false,
+              "ret": "dict",
+              "payable": false
+            },
+            "total": {
+              "params": [],
+              "kwparams": {},
+              "readonly": true,
+              "ret": "int"
+            }
+          }
+        }
+      }
+    }
+  ]
+}
