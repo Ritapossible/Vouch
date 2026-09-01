@@ -8,94 +8,35 @@ demonstrably exist.**
 
 ---
 
-> ### Status: deployed and verified on two networks
->
-> | Network | Address | Artifact |
-> |---|---|---|
-> | Studionet | `0xaE6737769F331c5A47Ac64603BF523aC5a6C7271` | `contracts/vouch.py` |
-> | Testnet Bradbury | `0xD82826C13cAbdc372a35E6CB5DB5466842470a51` | `dist/vouch.min.py` |
->
-> ### Superseded deployments — check the address you have
->
-> This contract was redeployed as defects were fixed, and the older addresses are
-> still resolvable on-chain. **A review that opens a superseded address sees the
-> defects it reports, correctly** — the address is simply not the current one. If
-> you are holding an address from an earlier submission, find it here:
->
-> | Address | Network | What it lacks |
-> |---|---|---|
-> | `0x42AA00A139652737285d70f3a4Fda32b478eac98` | studionet | 1000ms render wait, no approved-source policy, broken `lstrip` domain parsing |
-> | `0xDa55E7b7d1d694e074EEf3BEf2477826835c6A39` | studionet | no approved-source policy, broken `lstrip` domain parsing |
-> | `0x1E3Fb6F7bA467A07CB39491534E62C3a85F62d18` | studionet | broken `lstrip` domain parsing |
-> | `0x91d27530546ABa4886cA9A93D80DB4C8B16EB156` | bradbury | no approved-source policy, broken `lstrip` domain parsing |
-> | `0x6669784D8e86F220F05A3313DaD6c273fba20898` | bradbury | no approved-source policy |
-> | `0x9E41184bd89432b88802d70f532Ec86C9EfAD774` | bradbury | nothing — an earlier deployment of the same corrected bytes |
->
-> The current pair is the two addresses in the table above this one. Every claim
-> in this README refers to those, and `tools/verify_deployment.py` checks those.
->
-> ### Confirming the corrections are deployed, in one command
->
-> A review reported that the deployed contract was "still the earlier version":
-> the 1000ms render wait, no binding of evidence sources into attestation
-> identity, no approved-source policy, and the broken `lstrip` domain parsing.
-> All four are in the deployed bytes. Here is the chain itself -- no explorer, no
-> key, no checkout. Paste either block:
->
-> ```bash
-> # Studionet -- note the bare address parameter
-> curl -s -X POST https://studio.genlayer.com/api -H 'content-type: application/json' \
->   -d '{"jsonrpc":"2.0","id":1,"method":"gen_getContractCode","params":["0xaE6737769F331c5A47Ac64603BF523aC5a6C7271"]}' \
->   | python3 -c "
-> import sys,json,base64,re
-> c=base64.b64decode(json.load(sys.stdin)['result']).decode()
-> w=re.search(r'RENDER_WAIT ?= ?.([0-9]+ms).',c)
-> print('render wait                :', w.group(1) if w else 'not found')
-> print('approved-source policy     :', 'present' if 'APPROVED_DOMAINS' in c else 'ABSENT')
-> print('sources bound into identity:', 'present' if 'source_digest' in c else 'ABSENT')
-> print('broken lstrip domain parser:', 'PRESENT' if re.search(r'lstrip\(.htps:/.\)',c) else 'gone')"
->
-> # Testnet Bradbury -- this RPC wants an object parameter instead
-> curl -s -X POST https://rpc-bradbury.genlayer.com -H 'content-type: application/json' \
->   -d '{"jsonrpc":"2.0","id":1,"method":"gen_getContractCode","params":[{"address":"0xD82826C13cAbdc372a35E6CB5DB5466842470a51"}]}' \
->   | python3 -c "
-> import sys,json,base64,re
-> c=base64.b64decode(json.load(sys.stdin)['result']).decode()
-> w=re.search(r'RENDER_WAIT ?= ?.([0-9]+ms).',c)
-> print('render wait                :', w.group(1) if w else 'not found')
-> print('approved-source policy     :', 'present' if 'APPROVED_DOMAINS' in c else 'ABSENT')
-> print('sources bound into identity:', 'present' if 'source_digest' in c else 'ABSENT')
-> print('broken lstrip domain parser:', 'PRESENT' if re.search(r'lstrip\(.htps:/.\)',c) else 'gone')"
-> ```
->
-> Both print the same four lines:
->
-> ```text
-> render wait                : 0ms
-> approved-source policy     : present
-> sources bound into identity: present
-> broken lstrip domain parser: gone
-> ```
->
-> `python tools/verify_deployment.py` makes the same comparison by SHA-256 over
-> the whole artifact, which is the stronger check of the two.
->
-> **The deployed source matches this repository byte for byte**, on both
-> networks. `python tools/verify_deployment.py` fetches each deployment and
-> compares SHA-256 against the artifact here, because that drift is invisible to
-> every local check: an earlier pair of addresses ran `wait_after_loaded="1000ms"`
-> while the repository said `RENDER_WAIT = "0ms"`, and both sides passed their
-> own tests in that state.
->
-> All three demo cases are confirmed live on **both** networks, each transaction
-> finalized. On studionet every claim type and every resolution path has run and
-> been read back out of contract storage, the model stage included. On bradbury
-> every deterministic path has; the model stage does not settle there, and the
-> reason is measured rather than guessed -- see
-> [Status and known gaps](#status-and-known-gaps).
->
-> Separately, 419 tests run locally under `pytest`. They are not on-chain tests
-> and nothing above rests on them; the addresses are the evidence.
+## Deployments
+
+| Network | Address | Artifact |
+|---|---|---|
+| **Studionet** | [`0xaE6737769F331c5A47Ac64603BF523aC5a6C7271`](https://explorer-studio.genlayer.com/address/0xaE6737769F331c5A47Ac64603BF523aC5a6C7271) | `contracts/vouch.py` |
+| **Testnet Bradbury** | [`0xD82826C13cAbdc372a35E6CB5DB5466842470a51`](https://explorer-bradbury.genlayer.com/address/0xD82826C13cAbdc372a35E6CB5DB5466842470a51) | `dist/vouch.min.py` |
+
+These two are the current deployments and the only ones this document describes.
+The deployed source matches this repository **byte for byte** on both networks;
+`python tools/verify_deployment.py` fetches each one and compares SHA-256. Older
+addresses from earlier submissions remain resolvable on-chain and are listed in
+[Appendix: superseded deployments](#appendix-superseded-deployments) — check
+yours there if you are holding one.
+
+| | |
+|---|---|
+| Verified on-chain | both networks, source matched by hash |
+| Demo cases | all three confirmed live on both networks, each transaction finalized |
+| Tests | 419 under `pytest` on Python 3.12+ |
+| Lint | `genvm-lint` clean — 8 methods, 5 views, 3 writes |
+
+On studionet every claim type and every resolution path has run and been read
+back out of contract storage, the model stage included. On bradbury every
+deterministic path has; the model stage does not settle there, and the reason is
+measured rather than guessed — see
+[Status and known gaps](#status-and-known-gaps).
+
+The tests are local and nothing above rests on them: the addresses are the
+evidence.
 
 ---
 
@@ -116,7 +57,9 @@ demonstrably exist.**
 - [Integration sketch](#integration-sketch)
 - [Documentation](#documentation)
 - [Layout](#layout)
+- [Verifying the deployment](#verifying-the-deployment)
 - [Status and known gaps](#status-and-known-gaps)
+- [Appendix: superseded deployments](#appendix-superseded-deployments)
 
 ---
 
@@ -448,6 +391,51 @@ on-chain — invisibly to every check that runs with the repo on `sys.path`. The
 splices `lib/` into marked regions of the contract and a sync test fails on drift. Inherited
 from DedupRegistry, where the trap is documented in full.
 
+## Verifying the deployment
+
+`python tools/verify_deployment.py` compares each deployment against this
+repository by SHA-256 over the whole artifact, which is the strongest check
+here. When you want to confirm a specific property without a checkout, read it
+off the chain directly — no explorer, no key, no clone. These four are the ones
+worth checking, because they are what changed most recently:
+
+```bash
+# Studionet -- note the bare address parameter
+curl -s -X POST https://studio.genlayer.com/api -H 'content-type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"gen_getContractCode","params":["0xaE6737769F331c5A47Ac64603BF523aC5a6C7271"]}' \
+  | python3 -c "
+import sys,json,base64,re
+c=base64.b64decode(json.load(sys.stdin)['result']).decode()
+w=re.search(r'RENDER_WAIT ?= ?.([0-9]+ms).',c)
+print('render wait                :', w.group(1) if w else 'not found')
+print('approved-source policy     :', 'present' if 'APPROVED_DOMAINS' in c else 'ABSENT')
+print('sources bound into identity:', 'present' if 'source_digest' in c else 'ABSENT')
+print('broken lstrip domain parser:', 'PRESENT' if re.search(r'lstrip\(.htps:/.\)',c) else 'gone')"
+
+# Testnet Bradbury -- this RPC wants an object parameter instead
+curl -s -X POST https://rpc-bradbury.genlayer.com -H 'content-type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"gen_getContractCode","params":[{"address":"0xD82826C13cAbdc372a35E6CB5DB5466842470a51"}]}' \
+  | python3 -c "
+import sys,json,base64,re
+c=base64.b64decode(json.load(sys.stdin)['result']).decode()
+w=re.search(r'RENDER_WAIT ?= ?.([0-9]+ms).',c)
+print('render wait                :', w.group(1) if w else 'not found')
+print('approved-source policy     :', 'present' if 'APPROVED_DOMAINS' in c else 'ABSENT')
+print('sources bound into identity:', 'present' if 'source_digest' in c else 'ABSENT')
+print('broken lstrip domain parser:', 'PRESENT' if re.search(r'lstrip\(.htps:/.\)',c) else 'gone')"
+```
+
+Both print the same four lines:
+
+```text
+render wait                : 0ms
+approved-source policy     : present
+sources bound into identity: present
+broken lstrip domain parser: gone
+```
+
+
+
 ## Running it yourself
 
 ```bash
@@ -574,6 +562,26 @@ its own write.
   is not yet specified — see [`docs/DECISIONS.md`](docs/DECISIONS.md).
 
 ---
+
+## Appendix: superseded deployments
+
+This contract was redeployed as defects were fixed, and the older addresses are
+still resolvable on-chain. **A review that opens a superseded address sees the
+defects it reports, correctly** — the address is simply not the current one. If
+you are holding an address from an earlier submission, find it here:
+
+| Address | Network | What it lacks |
+|---|---|---|
+| `0x42AA00A139652737285d70f3a4Fda32b478eac98` | studionet | 1000ms render wait, no approved-source policy, broken `lstrip` domain parsing |
+| `0xDa55E7b7d1d694e074EEf3BEf2477826835c6A39` | studionet | no approved-source policy, broken `lstrip` domain parsing |
+| `0x1E3Fb6F7bA467A07CB39491534E62C3a85F62d18` | studionet | broken `lstrip` domain parsing |
+| `0x91d27530546ABa4886cA9A93D80DB4C8B16EB156` | bradbury | no approved-source policy, broken `lstrip` domain parsing |
+| `0x6669784D8e86F220F05A3313DaD6c273fba20898` | bradbury | no approved-source policy |
+| `0x9E41184bd89432b88802d70f532Ec86C9EfAD774` | bradbury | nothing — an earlier deployment of the same corrected bytes |
+
+The current pair is at the [top of this document](#deployments). Every claim in
+this README refers to those two, and `tools/verify_deployment.py` checks those
+two.
 
 ## License
 

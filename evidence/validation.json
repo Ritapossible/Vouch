@@ -3,7 +3,7 @@
   "contract_sha256": "4d9b20d962d85bbf63df881118fc80f843a41b244e388f9437ab85dad77a9b71",
   "contract_bytes": 74748,
   "compact_artifact": null,
-  "git_head_at_verification": "82eaf4a0f7ce3d2f6d0b258c5395f0ff7f15ed87",
+  "git_head_at_verification": "2969e90f542308db0fb9c36a953807990f62a3ff",
   "linter": "genvm-linter 0.11.0",
   "sources": [
     {
