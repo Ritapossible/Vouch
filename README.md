@@ -15,6 +15,25 @@ demonstrably exist.**
 > | Studionet | `0xaE6737769F331c5A47Ac64603BF523aC5a6C7271` | `contracts/vouch.py` |
 > | Testnet Bradbury | `0xD82826C13cAbdc372a35E6CB5DB5466842470a51` | `dist/vouch.min.py` |
 >
+> ### Superseded deployments — check the address you have
+>
+> This contract was redeployed as defects were fixed, and the older addresses are
+> still resolvable on-chain. **A review that opens a superseded address sees the
+> defects it reports, correctly** — the address is simply not the current one. If
+> you are holding an address from an earlier submission, find it here:
+>
+> | Address | Network | What it lacks |
+> |---|---|---|
+> | `0x42AA00A139652737285d70f3a4Fda32b478eac98` | studionet | 1000ms render wait, no approved-source policy, broken `lstrip` domain parsing |
+> | `0xDa55E7b7d1d694e074EEf3BEf2477826835c6A39` | studionet | no approved-source policy, broken `lstrip` domain parsing |
+> | `0x1E3Fb6F7bA467A07CB39491534E62C3a85F62d18` | studionet | broken `lstrip` domain parsing |
+> | `0x91d27530546ABa4886cA9A93D80DB4C8B16EB156` | bradbury | no approved-source policy, broken `lstrip` domain parsing |
+> | `0x6669784D8e86F220F05A3313DaD6c273fba20898` | bradbury | no approved-source policy |
+> | `0x9E41184bd89432b88802d70f532Ec86C9EfAD774` | bradbury | nothing — an earlier deployment of the same corrected bytes |
+>
+> The current pair is the two addresses in the table above this one. Every claim
+> in this README refers to those, and `tools/verify_deployment.py` checks those.
+>
 > ### Confirming the corrections are deployed, in one command
 >
 > A review reported that the deployed contract was "still the earlier version":
