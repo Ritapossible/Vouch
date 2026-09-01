@@ -15,6 +15,52 @@ demonstrably exist.**
 > | Studionet | `0xaE6737769F331c5A47Ac64603BF523aC5a6C7271` | `contracts/vouch.py` |
 > | Testnet Bradbury | `0xD82826C13cAbdc372a35E6CB5DB5466842470a51` | `dist/vouch.min.py` |
 >
+> ### Confirming the corrections are deployed, in one command
+>
+> A review reported that the deployed contract was "still the earlier version":
+> the 1000ms render wait, no binding of evidence sources into attestation
+> identity, no approved-source policy, and the broken `lstrip` domain parsing.
+> All four are in the deployed bytes. Here is the chain itself -- no explorer, no
+> key, no checkout. Paste either block:
+>
+> ```bash
+> # Studionet -- note the bare address parameter
+> curl -s -X POST https://studio.genlayer.com/api -H 'content-type: application/json' \
+>   -d '{"jsonrpc":"2.0","id":1,"method":"gen_getContractCode","params":["0xaE6737769F331c5A47Ac64603BF523aC5a6C7271"]}' \
+>   | python3 -c "
+> import sys,json,base64,re
+> c=base64.b64decode(json.load(sys.stdin)['result']).decode()
+> w=re.search(r'RENDER_WAIT ?= ?.([0-9]+ms).',c)
+> print('render wait                :', w.group(1) if w else 'not found')
+> print('approved-source policy     :', 'present' if 'APPROVED_DOMAINS' in c else 'ABSENT')
+> print('sources bound into identity:', 'present' if 'source_digest' in c else 'ABSENT')
+> print('broken lstrip domain parser:', 'PRESENT' if re.search(r'lstrip\(.htps:/.\)',c) else 'gone')"
+>
+> # Testnet Bradbury -- this RPC wants an object parameter instead
+> curl -s -X POST https://rpc-bradbury.genlayer.com -H 'content-type: application/json' \
+>   -d '{"jsonrpc":"2.0","id":1,"method":"gen_getContractCode","params":[{"address":"0xD82826C13cAbdc372a35E6CB5DB5466842470a51"}]}' \
+>   | python3 -c "
+> import sys,json,base64,re
+> c=base64.b64decode(json.load(sys.stdin)['result']).decode()
+> w=re.search(r'RENDER_WAIT ?= ?.([0-9]+ms).',c)
+> print('render wait                :', w.group(1) if w else 'not found')
+> print('approved-source policy     :', 'present' if 'APPROVED_DOMAINS' in c else 'ABSENT')
+> print('sources bound into identity:', 'present' if 'source_digest' in c else 'ABSENT')
+> print('broken lstrip domain parser:', 'PRESENT' if re.search(r'lstrip\(.htps:/.\)',c) else 'gone')"
+> ```
+>
+> Both print the same four lines:
+>
+> ```text
+> render wait                : 0ms
+> approved-source policy     : present
+> sources bound into identity: present
+> broken lstrip domain parser: gone
+> ```
+>
+> `python tools/verify_deployment.py` makes the same comparison by SHA-256 over
+> the whole artifact, which is the stronger check of the two.
+>
 > **The deployed source matches this repository byte for byte**, on both
 > networks. `python tools/verify_deployment.py` fetches each deployment and
 > compares SHA-256 against the artifact here, because that drift is invisible to
@@ -29,7 +75,7 @@ demonstrably exist.**
 > reason is measured rather than guessed -- see
 > [Status and known gaps](#status-and-known-gaps).
 >
-> Separately, 369 tests run locally under `pytest`. They are not on-chain tests
+> Separately, 419 tests run locally under `pytest`. They are not on-chain tests
 > and nothing above rests on them; the addresses are the evidence.
 
 ---
@@ -399,10 +445,18 @@ interpreter itself rather than trusting whatever `python3` points at.
 
 **Two test files import the GenVM SDK**, because they exercise the generated
 `contracts/vouch.py` rather than the `lib/` sources -- the point being that what
-is tested is the file that deploys. With the SDK importable that is 369 tests;
-without it, `tests/test_model_stage.py` skips and the rest still run, so a clean
-checkout gives **338 passed, 1 skipped** and no failures. Nothing is hidden by a
-missing SDK except the model-stage tests, which say so.
+is tested is the file that deploys. With the SDK importable that is **419 tests**
+on Python 3.12 or newer. Without it, or on an older interpreter, those two
+modules skip with the reason printed and the rest still run: **339 passed, 2
+skipped** and no failures.
+
+`tests/conftest.py` locates the SDK rather than assuming a path. It checks
+`$GENLAYER_STD`, then `/tmp/std`, then the copy `genvm-lint` unpacks under
+`~/.cache/genvm-linter`. It used to hard-code `/tmp/std` alone, so a clean
+checkout on any other machine produced two collection *errors* rather than a
+test run -- a poor first impression that said nothing about the contract. The
+skip is a module-level one because the SDK fails with a `SyntaxError` on 3.11,
+and `pytest.importorskip` catches only `ImportError`.
 
 `tests/conftest.py` explains the two pieces of scaffolding this needs: a stub for
 the VM host module, and a recorded message on file descriptor 0, which the SDK
@@ -416,7 +470,7 @@ It has been.
 **Done:**
 
 - [x] Contract built, deployed and verified on studionet and testnet-bradbury.
-- [x] 369 tests. `genvm-lint` validates the contract: 8 methods, 5 views, 3 writes,
+- [x] 419 tests. `genvm-lint` validates the contract: 8 methods, 5 views, 3 writes,
       and a schema matching [`docs/API.md`](docs/API.md).
 - [x] All three demo cases confirmed live on both networks -- `substantiated`,
       `unsubstantiated` and `contradicted`, three different answers, no model involved.

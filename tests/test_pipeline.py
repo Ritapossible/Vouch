@@ -17,10 +17,19 @@ import sys
 import pytest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-sys.path.insert(0, "/tmp/std")
+# The SDK path is resolved in conftest.py, which runs before collection.
 
-genlayer = pytest.importorskip("genlayer", reason="GenVM SDK not importable here")
+from conftest import SDK_USABLE, SKIP_REASON  # noqa: E402
 
+# `pytest.importorskip` is not enough here. It catches ImportError, and the SDK
+# fails with a *SyntaxError* on Python 3.11 and older -- it uses PEP 695
+# generics (`class Lazy[T]:`). An uncaught SyntaxError during collection is a
+# hard error, which is why cloning this repository used to produce two of them
+# instead of a test run. A module-level skip covers both causes.
+if not SDK_USABLE:
+    pytest.skip(SKIP_REASON, allow_module_level=True)
+
+import genlayer  # noqa: E402,F401
 
 from vouch_testkit import V, ADDR, OTHER  # noqa: E402
 
